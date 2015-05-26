@@ -1,0 +1,23 @@
+[package]
+name = "serde_yaml"
+version = "0.0.1"
+authors = ["Sebastian Thiel <byronimo@gmail.com>"]
+license = "MIT"
+description = "YAML support for rust-serde"
+repository = "https://github.com/serde-rs/yaml"
+readme = "README.md"
+keywords = ["serialization", "deserializatin", "yaml"]
+
+[dependencies]
+serde = "*"
+
+[dev-dependencies]
+serde_macros = "*"
+aster = { version = "*", default_features = false }
+quasi = { version = "*", default_features = false }
+
+[features]
+default = ["aster/with-syntex", "quasi/with-syntex"]
+nightly = []
+
+
