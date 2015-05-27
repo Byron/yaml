@@ -59,10 +59,11 @@ the requirements of the underlying [yaml specification][yaml-spec].
 * NO SERIALZATION SUPPORT
 * NO DESERIALIZTION SUPPORT
 
-# Build Instructions
+# Deviations from the Spec
 
-The build is meant to work using the stable toolchain with `cargo build` only.
-If you want to run tests, you will need the nightly toolchain, using 
-`cargo test --no-default-features`.
+This is an exhaustive list items showing where this implementation deviates from the recommendations of the 
+[SPEC][yaml-spec].
+
+* TODO ... 
 
 [yaml-spec]: http://www.yaml.org/spec/1.2/spec.html

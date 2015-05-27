@@ -4,6 +4,9 @@ use std::string::FromUtf8Error;
 
 use serde::ser;
 
+/// The only allowed indentation character
+const INDENT: &'static [u8] = b" ";
+
 /// A structure for implementing serialization to JSON.
 pub struct Serializer<W, F> {
     writer: W,
@@ -14,7 +17,7 @@ pub struct Serializer<W, F> {
     first: bool,
 }
 
-impl<'a, W> Serializer<W, StandardFormatter<'a>>
+impl<W> Serializer<W, StandardFormatter>
     where W: io::Write,
 {
     /// Creates a new YAML serializer.
@@ -254,6 +257,29 @@ impl<W, F> ser::Serializer for Serializer<W, F>
     }
 }
 
+/// Scalar content can be written in block notation, using a literal style (indicated by “|”)
+/// where all line breaks are significant. Alternatively, they can be written with the folded 
+/// style (denoted by “>”) where each line break is folded to a space unless it ends an empty or 
+/// a more-indented line.
+/// This style only works within a Block structure
+///
+/// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#style/block/)
+pub enum BlockScalarStyle {
+    Scalar,
+    Folded,
+}
+
+/// There are two groups of styles. Block styles use indentation to denote structure; In contrast,
+/// flow styles styles rely on explicit indicators.
+///
+/// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2766446)
+pub enum StructureStyle {
+    /// Uses indentation to denote structure
+    Block,
+    /// Uses explicit indicators
+    Flow,
+}
+
 pub trait Formatter {
     fn open<W>(&mut self, writer: &mut W, ch: u8) -> io::Result<()>
         where W: io::Write;
@@ -268,29 +294,35 @@ pub trait Formatter {
         where W: io::Write;
 }
 
-pub struct StandardFormatterOptions<'a> {
-    pub indent: &'a [u8]
+pub struct StandardFormatterOptions {
+    /// Amount of spaces one indentation level will assume
+    pub spaces_per_indentation_level: usize,
+    pub sequence_structure_style: StructureStyle,
+    pub mapping_structure_style: StructureStyle,
 }
 
-impl<'a> Default for StandardFormatterOptions<'a> {
+impl Default for StandardFormatterOptions {
+    /// Standard YAML style, as human-readable as possible
     fn default() -> Self {
         StandardFormatterOptions {
-            indent: b"  ",
+            spaces_per_indentation_level: 2,
+            sequence_structure_style: StructureStyle::Block,
+            mapping_structure_style: StructureStyle::Block,
         }
     }
 }
 
-pub struct StandardFormatter<'a> {
+pub struct StandardFormatter {
     current_indent: usize,
-    opts: StandardFormatterOptions<'a>,
+    opts: StandardFormatterOptions,
 }
 
-impl<'a> StandardFormatter<'a> {
+impl StandardFormatter {
     fn new() -> Self {
         StandardFormatter::with_options(Default::default())
     }
 
-    fn with_options(options: StandardFormatterOptions<'a>) -> Self {
+    fn with_options(options: StandardFormatterOptions) -> Self {
         StandardFormatter {
             current_indent: 0,
             opts: options,
@@ -298,7 +330,7 @@ impl<'a> StandardFormatter<'a> {
     }
 }
 
-impl<'a> Formatter for StandardFormatter<'a> {
+impl Formatter for StandardFormatter {
     fn open<W>(&mut self, writer: &mut W, ch: u8) -> io::Result<()>
         where W: io::Write,
     {
@@ -315,7 +347,7 @@ impl<'a> Formatter for StandardFormatter<'a> {
             try!(writer.write_all(b",\n"));
         }
 
-        indent(writer, self.current_indent, self.opts.indent)
+        indent(writer, self.current_indent * self.opts.spaces_per_indentation_level)
     }
 
     fn colon<W>(&mut self, writer: &mut W) -> io::Result<()>
@@ -329,7 +361,7 @@ impl<'a> Formatter for StandardFormatter<'a> {
     {
         self.current_indent -= 1;
         try!(writer.write(b"\n"));
-        try!(indent(writer, self.current_indent, self.opts.indent));
+        try!(indent(writer, self.current_indent * self.opts.spaces_per_indentation_level));
 
         writer.write_all(&[ch])
     }
@@ -452,11 +484,11 @@ pub fn to_string<T>(value: &T) -> Result<String, FromUtf8Error>
     String::from_utf8(vec)
 }
 
-fn indent<W>(wr: &mut W, n: usize, s: &[u8]) -> io::Result<()>
+fn indent<W>(wr: &mut W, n: usize) -> io::Result<()>
     where W: io::Write,
 {
     for _ in 0 .. n {
-        try!(wr.write_all(s));
+        try!(wr.write_all(INDENT));
     }
 
     Ok(())
