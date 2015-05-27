@@ -1,4 +1,4 @@
 
-pub use self::fixed::Data1;
+pub use self::fixed::*;
 
 mod fixed;

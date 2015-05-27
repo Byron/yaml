@@ -1,3 +1,6 @@
 target
 Cargo.lock
 tests/structs/out.rs
+.pyenv-*/
+.virtualenv/
+
