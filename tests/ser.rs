@@ -8,8 +8,8 @@ mod ser_data;
 fn serialization() {
     let d = structs::Data1::default();
 
-    println!("HAVE\n{}", yaml::to_string_pretty(&d).unwrap());
+    println!("HAVE\n{}", yaml::to_string(&d).unwrap());
     println!("WANT\n{}", ser_data::DATA1_DEFAULT);
 
-    assert_eq!(yaml::to_string_pretty(&d).unwrap(), ser_data::DATA1_DEFAULT);
+    assert_eq!(yaml::to_string(&d).unwrap(), ser_data::DATA1_DEFAULT);
 }

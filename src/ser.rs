@@ -5,7 +5,7 @@ use std::string::FromUtf8Error;
 use serde::ser;
 
 /// A structure for implementing serialization to JSON.
-pub struct Serializer<W, F=CompactFormatter> {
+pub struct Serializer<W, F> {
     writer: W,
     formatter: F,
 
@@ -14,31 +14,22 @@ pub struct Serializer<W, F=CompactFormatter> {
     first: bool,
 }
 
-impl<W> Serializer<W>
+impl<'a, W> Serializer<W, StandardFormatter<'a>>
     where W: io::Write,
 {
-    /// Creates a new JSON serializer.
+    /// Creates a new YAML serializer.
     #[inline]
     pub fn new(writer: W) -> Self {
-        Serializer::with_formatter(writer, CompactFormatter)
+        Serializer::with_formatter(writer, StandardFormatter::new())
     }
 }
 
-impl<'a, W> Serializer<W, PrettyFormatter<'a>>
-    where W: io::Write,
-{
-    /// Creates a new JSON pretty print serializer.
-    #[inline]
-    pub fn pretty(writer: W) -> Self {
-        Serializer::with_formatter(writer, PrettyFormatter::new())
-    }
-}
 
 impl<W, F> Serializer<W, F>
     where W: io::Write,
           F: Formatter,
 {
-    /// Creates a new JSON visitor whose output will be written to the writer
+    /// Creates a new YAML visitor whose output will be written to the writer
     /// specified.
     #[inline]
     pub fn with_formatter(writer: W, formatter: F) -> Self {
@@ -277,57 +268,37 @@ pub trait Formatter {
         where W: io::Write;
 }
 
-pub struct CompactFormatter;
+pub struct StandardFormatterOptions<'a> {
+    pub indent: &'a [u8]
+}
 
-impl Formatter for CompactFormatter {
-    fn open<W>(&mut self, writer: &mut W, ch: u8) -> io::Result<()>
-        where W: io::Write,
-    {
-        writer.write_all(&[ch])
-    }
-
-    fn comma<W>(&mut self, writer: &mut W, first: bool) -> io::Result<()>
-        where W: io::Write,
-    {
-        if first {
-            Ok(())
-        } else {
-            writer.write_all(b",")
+impl<'a> Default for StandardFormatterOptions<'a> {
+    fn default() -> Self {
+        StandardFormatterOptions {
+            indent: b"  ",
         }
-    }
-
-    fn colon<W>(&mut self, writer: &mut W) -> io::Result<()>
-        where W: io::Write,
-    {
-        writer.write_all(b":")
-    }
-
-    fn close<W>(&mut self, writer: &mut W, ch: u8) -> io::Result<()>
-        where W: io::Write,
-    {
-        writer.write_all(&[ch])
     }
 }
 
-pub struct PrettyFormatter<'a> {
+pub struct StandardFormatter<'a> {
     current_indent: usize,
-    indent: &'a [u8],
+    opts: StandardFormatterOptions<'a>,
 }
 
-impl<'a> PrettyFormatter<'a> {
+impl<'a> StandardFormatter<'a> {
     fn new() -> Self {
-        PrettyFormatter::with_indent(b"  ")
+        StandardFormatter::with_options(Default::default())
     }
 
-    fn with_indent(indent: &'a [u8]) -> Self {
-        PrettyFormatter {
+    fn with_options(options: StandardFormatterOptions<'a>) -> Self {
+        StandardFormatter {
             current_indent: 0,
-            indent: indent,
+            opts: options,
         }
     }
 }
 
-impl<'a> Formatter for PrettyFormatter<'a> {
+impl<'a> Formatter for StandardFormatter<'a> {
     fn open<W>(&mut self, writer: &mut W, ch: u8) -> io::Result<()>
         where W: io::Write,
     {
@@ -344,7 +315,7 @@ impl<'a> Formatter for PrettyFormatter<'a> {
             try!(writer.write_all(b",\n"));
         }
 
-        indent(writer, self.current_indent, self.indent)
+        indent(writer, self.current_indent, self.opts.indent)
     }
 
     fn colon<W>(&mut self, writer: &mut W) -> io::Result<()>
@@ -358,7 +329,7 @@ impl<'a> Formatter for PrettyFormatter<'a> {
     {
         self.current_indent -= 1;
         try!(writer.write(b"\n"));
-        try!(indent(writer, self.current_indent, self.indent));
+        try!(indent(writer, self.current_indent, self.opts.indent));
 
         writer.write_all(&[ch])
     }
@@ -460,17 +431,6 @@ pub fn to_writer<W, T>(writer: &mut W, value: &T) -> io::Result<()>
     Ok(())
 }
 
-/// Encode the specified struct into a json `[u8]` writer.
-#[inline]
-pub fn to_writer_pretty<W, T>(writer: &mut W, value: &T) -> io::Result<()>
-    where W: io::Write,
-          T: ser::Serialize,
-{
-    let mut ser = Serializer::pretty(writer);
-    try!(value.serialize(&mut ser));
-    Ok(())
-}
-
 /// Encode the specified struct into a json `[u8]` buffer.
 #[inline]
 pub fn to_vec<T>(value: &T) -> Vec<u8>
@@ -483,33 +443,12 @@ pub fn to_vec<T>(value: &T) -> Vec<u8>
     writer
 }
 
-/// Encode the specified struct into a json `[u8]` buffer.
-#[inline]
-pub fn to_vec_pretty<T>(value: &T) -> Vec<u8>
-    where T: ser::Serialize,
-{
-    // We are writing to a Vec, which doesn't fail. So we can ignore
-    // the error.
-    let mut writer = Vec::with_capacity(128);
-    to_writer_pretty(&mut writer, value).unwrap();
-    writer
-}
-
 /// Encode the specified struct into a json `String` buffer.
 #[inline]
 pub fn to_string<T>(value: &T) -> Result<String, FromUtf8Error>
     where T: ser::Serialize
 {
     let vec = to_vec(value);
-    String::from_utf8(vec)
-}
-
-/// Encode the specified struct into a json `String` buffer.
-#[inline]
-pub fn to_string_pretty<T>(value: &T) -> Result<String, FromUtf8Error>
-    where T: ser::Serialize
-{
-    let vec = to_vec_pretty(value);
     String::from_utf8(vec)
 }
 

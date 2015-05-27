@@ -19,4 +19,4 @@ extern crate serde;
 
 mod ser;
 
-pub use ser::to_string_pretty;
+pub use ser::{to_string};
