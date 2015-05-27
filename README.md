@@ -5,6 +5,14 @@ It follows the [YAML Spec 1.2][yaml-spec].
 
 **The project is so early in development that it cannot be used at all**.
 
+# Development Screencasts
+
+All development is recorded and made available on *YouTube*. No cutting, no script, just 
+my plain day, every day, coding with narration.
+
+* **[Building a YAML Parser in Rust](https://www.youtube.com/playlist?list=PLMHbQxe1e9MmX_OeeyFLlqyZrBQ6PgGjL)** (*Playlist*)
+
+
 # What is YAML
 
 TODO
