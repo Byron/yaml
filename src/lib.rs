@@ -17,4 +17,6 @@
 //! [yaml-spec]: http://www.yaml.org/spec/1.2/spec.html
 extern crate serde;
 
-include!(concat!(env!("OUT_DIR"), "/lib.rs"));
+mod ser;
+
+pub use ser::to_string_pretty;
