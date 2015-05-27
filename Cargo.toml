@@ -7,17 +7,14 @@ description = "YAML support for rust-serde"
 repository = "https://github.com/serde-rs/yaml"
 readme = "README.md"
 keywords = ["serialization", "deserializatin", "yaml"]
+build = "src/build.rs"
 
 [dependencies]
 serde = "*"
 
-[dev-dependencies]
-serde_macros = "*"
-aster = { version = "*", default_features = false }
-quasi = { version = "*", default_features = false }
-
 [features]
-default = ["aster/with-syntex", "quasi/with-syntex"]
-nightly = []
+foo = []
 
-
+[build-dependencies]
+syntex = "*"
+serde_codegen = "*"

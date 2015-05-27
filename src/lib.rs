@@ -15,5 +15,8 @@
 //! * NO DESERIALIZTION SUPPORT
 //! 
 //! [yaml-spec]: http://www.yaml.org/spec/1.2/spec.html
-
 extern crate serde;
+
+mod ser;
+
+pub use ser::to_string_pretty;
