@@ -7,13 +7,19 @@ PYTHON := $(VENV_DIR)/bin/python
 PIP := $(VENV_DIR)/bin/pip
 
 help:
-	$(info Targets)
-	$(info fixtures       -   rebuild all fixtures required by tests)
+	$(info -- Targets -- )
+	$(info )
+	$(info fixtures -   rebuild all fixtures required by tests)
+	$(info test     -   Run cargo-test, assuring fixtures are up-to-date)
+	$(info clean    -   remove all intermediate and generated files (which are not checked in to git))
+	$(info )
 
-test:
+test: fixtures
 	cargo test
 
 fixtures: tests/structs/fixed.rs tests/ser_data.rs
+
+
 
 tests/structs/out.rs: tests/structs/in.rs Makefile
 	@touch src/lib.rs
