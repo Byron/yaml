@@ -73,8 +73,7 @@ Sammy Sosa: {hr: 63, avg: 0.288}
 "##;
 
 pub const EXAMPLE_2_7: &'static str = 
-r##"---
-- Mark McGwire
+r##"- Mark McGwire
 - Sammy Sosa
 - Ken Griffey
 ---

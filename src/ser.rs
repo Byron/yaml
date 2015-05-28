@@ -257,6 +257,23 @@ impl<W, F> ser::Serializer for Serializer<W, F>
     }
 }
 
+
+
+/// Defines the way we shall use to preserve newlines within folded scalar block 
+/// literals.
+///
+/// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2760844)
+pub enum FoldedBlockScalarNewlinePreservationMode {
+    /// A line break is indicated by a single blank line
+    BlankLines,
+    /// A line break is indicated by indenting a line by one additional level.
+    ///
+    /// **TODO(ST)**: is it depending on the `spaces_per_indentation_level` flag, or should this 
+    /// just be hardcoded to (say) two spaces ?
+    Indentation,
+}
+
+
 /// Scalar content can be written in block notation, using a literal style (indicated by `|`)
 /// where all line breaks are significant. Alternatively, they can be written with the folded 
 /// style (denoted by `>`) where each line break is folded to a space unless it ends an empty or 
@@ -271,11 +288,21 @@ pub enum BlockScalarStyle {
     /// Folded scalar blocks are indicated by the `>` character within the YAML file
     /// and will translate line-breaks into spaces unless it ends with an empty or a more 
     /// indented line.
-    Folded,
+    ///
+    /// The *first tuple struct member* is the maximum width hint of a scalar line within 
+    /// multi-line strings. It is a hint only, and if too small, some
+    /// scalar lines might end up with greater width than specified here.
+    ///
+    /// The *second tuple struct member* defines the way newlines are preserved within 
+    /// the folded scalar.
+    Folded(usize, FoldedBlockScalarNewlinePreservationMode),
 }
 
-/// Defines how scalars are presented in Flow-Style. FlowStyle
-/// All scalars can span multiple lines.
+/// Defines how scalars are presented in Flow-Style.
+/// All scalars can span multiple lines, which are folded automatically.
+/// Therefore, the Flow style is a form of a folded scalar style.
+///
+/// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2786942)
 pub enum FlowScalarStyle {
     /// Scalars are not enclosed by identifiers at all, e.g. `key: value`
     Plain,
@@ -294,24 +321,48 @@ pub enum FlowScalarStyle {
 /// flow styles styles rely on explicit indicators.
 ///
 /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2766446)
-pub enum Style {
+pub enum StructureStyle {
     /// Uses indentation to denote structure
     Block,
-    /// Uses explicit indicators
+    /// Uses explicit indicators. This forces all child-structures to use the 
+    /// `Flow` style as well.
     Flow,
 }
 
 
-/// Defines the way we shall use to preserve newlines within folded scalar block 
-/// literals.
-pub enum FoldedBlockScalarNewlinePreservationMode {
-    /// A line break is indicated by a single blank line
-    BlankLines,
-    /// A line break is indicated by indenting a line by one additional level.
+/// Specify how scalars are serialized.
+///
+/// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2766446)
+pub enum ScalarStyle {
+    /// Use indentation to denote scalar values
+    Block(BlockScalarStyle),
+
+    /// Use Indicators to mark the start and end of a possibly multi-line 
+    /// scalar value. Whether or not line-breaks are inserted depends on the 
+    /// `multiline_scalar_maximum_width_hint` setting.
+    /// 
+    /// The *first tuple struct member* is the maximum width hint of a scalar line within
+    /// a scalar value. If the scalar line length exceeds this value, we may break it onto
+    /// a new line.
+    /// It is a hint only, and if too small, some
+    /// scalar lines might end up with greater width than specified here.
     ///
-    /// **TODO(ST)**: is it depending on the `spaces_per_indentation_level` flag, or should this 
-    /// just be hardcoded to (say) two spaces ?
-    Indentation,
+    /// The *second tuple struct member* identifies the style of the scalars in flow style.
+    Flow(usize, FlowScalarStyle)
+}
+
+/// Specifies how to separate various documents in a YAML stream.
+///
+/// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2800132)
+pub enum DocumentIndicatorStyle {
+    /// Enforce showing a document start indicator `---`, even in single-document mode 
+    /// (i.e. `dump(...)`.
+    /// In multi-document mode, i.e. `dump_all(...)`, the start indicator is automatically 
+    /// used as it is a requirement.
+    Start,
+    /// Enforce showing the start `---` and end `...` of document indicator for each 
+    /// dumped document. The behavior is similar in both `dump(...)` and `dump_all(...)` modes.
+    StartEnd
 }
 
 pub trait Formatter {
@@ -333,34 +384,29 @@ pub struct PresentationDetails {
     pub spaces_per_indentation_level: usize,
     /// Defines the style for scalar values, like strings, e.g. `key: string_value`
     /// that serialize to a string shorter than the `small_scalar_string_value_width_threshold`
-    pub small_scalar_string_value_style: Style,
+    pub small_scalar_string_value_style: ScalarStyle,
     /// Defines the style for scalar values, like strings, that are not considered
     /// small as their string width is larger than the 
     /// given `small_scalar_string_value_width_threshold`.
-    pub big_scalar_string_value_style: Style,
+    pub big_scalar_string_value_style: ScalarStyle,
     /// If the serialized string of a scalar value is smaller than this one, they
     /// `small_scalar_string_value_style` is applied, otherwise it will 
     /// be the `big_scalar_string_value_style`
     pub small_scalar_string_value_width_threshold: usize,
-    /// Defines the style to use for all scalar values which are presented in Flow style
-    pub flow_scalar_value_style: FlowScalarStyle,
-    /// Defines the style to use for all scalar values which are presented in Block style
-    pub block_scalar_value_style: BlockScalarStyle,
+    /// Specifies how keys in mappings are styled.
+    pub scalar_key_style: ScalarStyle,
     /// Defines the style for sequences, e.g. lists and tuples
-    pub sequence_style: Style,
+    pub sequence_style: StructureStyle,
     /// Defines the style of mappings, e.g. structures and HashMaps
-    pub mapping_style: Style,
-    /// Enforces a `---` indicator at the start of the document, even if `dump()` is used
-    pub explicit_document_start_indicator: bool,
-    /// Enforces a `...` indicator at the end of the document, even if `dump()` is used.
-    /// In case streaming documents, you would want to set this to true, to enforce an explicit 
-    /// end-of-document indicator as well.
-    pub explicit_document_end_indicator: bool,
-    /// The maximum width of a folded scalar line. It is a hint only, and if too small, some
-    /// scalar lines might end up with greater width than specified here.
-    pub folded_block_scalar_maximum_width_hint: usize,
-    /// Defines how newlines are indicated for folded block scalars
-    pub folded_block_scalar_newline_preservation_mode: FoldedBlockScalarNewlinePreservationMode,
+    pub mapping_style: StructureStyle,
+    /// Specify how documents should be marked.
+    ///
+    /// If `None`, we will not show any document indicators in single-document mode,
+    /// but show document start indicators (`---`) in multi-document mode between
+    /// the documents only.
+    ///
+    /// If `Some(...)` is used, we will enforce a particular indicator style.
+    pub document_indicator_style: Option<DocumentIndicatorStyle>,
 }
 
 impl Default for PresentationDetails {
@@ -368,18 +414,13 @@ impl Default for PresentationDetails {
     fn default() -> Self {
         PresentationDetails {
             spaces_per_indentation_level: 2,
-            small_scalar_string_value_style: Style::Flow,
-            big_scalar_string_value_style: Style::Block,
+            small_scalar_string_value_style: ScalarStyle::Flow(0, FlowScalarStyle::Plain),
+            big_scalar_string_value_style: ScalarStyle::Block(BlockScalarStyle::Literal),
             small_scalar_string_value_width_threshold: 20,
-            flow_scalar_value_style: FlowScalarStyle::Plain,
-            block_scalar_value_style: BlockScalarStyle::Literal,
-            sequence_style: Style::Block,
-            mapping_style: Style::Block,
-            explicit_document_start_indicator: false,
-            explicit_document_end_indicator: false,
-            folded_block_scalar_maximum_width_hint: 0,
-            folded_block_scalar_newline_preservation_mode:
-                                        FoldedBlockScalarNewlinePreservationMode::Indentation
+            scalar_key_style: ScalarStyle::Flow(0, FlowScalarStyle::Plain),
+            sequence_style: StructureStyle::Block,
+            mapping_style: StructureStyle::Block,
+            document_indicator_style: None,
         }
     }
 }
@@ -393,25 +434,26 @@ impl PresentationDetails {
 
     /// Returns PresentationDetails which produce a document compatible with the JSON format.
     /// 
-    /// *NOTE*: This works because JSON is a valid subset of YAML
-    /// **Warning**: Depending on your data structures, the serializer might insert 
-    /// Tags to further specify the underlying type, which would yield a document which 
-    /// doesn't satisfy JSON requirements.
+    /// * **valid JSON is valid YAML**
+    ///   - This works because JSON is a valid subset of YAML
+    /// * **Warning**
+    ///   - Depending on your data structures, the serializer might insert 
+    ///     Tags to further specify the underlying type, which would yield a document which 
+    ///     doesn't satisfy JSON requirements.
+    /// * **No multi-document support**
+    ///   - As JSON only provides a single namespace for documents, valid multi-document JSON
+    ///     files cannot be generated. Instead, consider serializing multiple documents as list 
+    ///     in a single document.
     fn json() -> PresentationDetails {
         PresentationDetails {
             spaces_per_indentation_level: 2,
-            small_scalar_string_value_style: Style::Flow,
-            big_scalar_string_value_style: Style::Flow,
+            small_scalar_string_value_style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote),
+            big_scalar_string_value_style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote),
             small_scalar_string_value_width_threshold: 20,         // doesn't matter
-            flow_scalar_value_style: FlowScalarStyle::DoubleQuote,
-            block_scalar_value_style: BlockScalarStyle::Literal,   // doesn't matter
-            sequence_style: Style::Flow,
-            mapping_style: Style::Flow,
-            explicit_document_start_indicator: false,
-            explicit_document_end_indicator: false,
-            folded_block_scalar_maximum_width_hint: 0,              // doesn't matter
-            folded_block_scalar_newline_preservation_mode:          // doesn't matter
-                                        FoldedBlockScalarNewlinePreservationMode::Indentation
+            scalar_key_style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote),
+            sequence_style: StructureStyle::Flow,
+            mapping_style: StructureStyle::Flow,
+            document_indicator_style: None,
         }
     }
 }

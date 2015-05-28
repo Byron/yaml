@@ -101,9 +101,10 @@ if __name__ == '__main__':
     )
 
     opts = opts_pretty.copy()
-    opts['explicit_start'] = True
+    # opts['explicit_start'] = True
     # Example 2.7.  Two Documents in a Stream
     write_const_str_rs(sys.stdout, 'example_2_7', yaml.dump_all(d, **opts))
+    opts['explicit_start'] = True
 
     # Example 2.8.  Play by Play Feed
     # from a Game
