@@ -23,7 +23,7 @@ impl<W> Serializer<W, StandardFormatter>
     where W: io::Write,
 {
     /// Creates a new YAML serializer.
-    #[inline]
+
     pub fn new(writer: W) -> Self {
         Serializer::with_formatter(writer, StandardFormatter::new())
     }
@@ -36,7 +36,7 @@ impl<W, F> Serializer<W, F>
 {
     /// Creates a new YAML visitor whose output will be written to the writer
     /// specified.
-    #[inline]
+
     pub fn with_formatter(writer: W, formatter: F) -> Self {
         Serializer {
             writer: writer,
@@ -46,7 +46,7 @@ impl<W, F> Serializer<W, F>
     }
 
     /// Unwrap the `Writer` from the `Serializer`.
-    #[inline]
+
     pub fn into_inner(self) -> W {
         self.writer
     }
@@ -58,7 +58,6 @@ impl<W, F> ser::Serializer for Serializer<W, F>
 {
     type Error = io::Error;
 
-    #[inline]
     fn visit_bool(&mut self, value: bool) -> io::Result<()> {
         if value {
             self.writer.write_all(b"true")
@@ -67,94 +66,76 @@ impl<W, F> ser::Serializer for Serializer<W, F>
         }
     }
 
-    #[inline]
     fn visit_isize(&mut self, value: isize) -> io::Result<()> {
         write!(&mut self.writer, "{}", value)
     }
 
-    #[inline]
     fn visit_i8(&mut self, value: i8) -> io::Result<()> {
         write!(&mut self.writer, "{}", value)
     }
 
-    #[inline]
     fn visit_i16(&mut self, value: i16) -> io::Result<()> {
         write!(&mut self.writer, "{}", value)
     }
 
-    #[inline]
     fn visit_i32(&mut self, value: i32) -> io::Result<()> {
         write!(&mut self.writer, "{}", value)
     }
 
-    #[inline]
     fn visit_i64(&mut self, value: i64) -> io::Result<()> {
         write!(&mut self.writer, "{}", value)
     }
 
-    #[inline]
     fn visit_usize(&mut self, value: usize) -> io::Result<()> {
         write!(&mut self.writer, "{}", value)
     }
 
-    #[inline]
     fn visit_u8(&mut self, value: u8) -> io::Result<()> {
         write!(&mut self.writer, "{}", value)
     }
 
-    #[inline]
     fn visit_u16(&mut self, value: u16) -> io::Result<()> {
         write!(&mut self.writer, "{}", value)
     }
 
-    #[inline]
     fn visit_u32(&mut self, value: u32) -> io::Result<()> {
         write!(&mut self.writer, "{}", value)
     }
 
-    #[inline]
     fn visit_u64(&mut self, value: u64) -> io::Result<()> {
         write!(&mut self.writer, "{}", value)
     }
 
-    #[inline]
     fn visit_f32(&mut self, value: f32) -> io::Result<()> {
         fmt_f32_or_null(&mut self.writer, value)
     }
 
-    #[inline]
     fn visit_f64(&mut self, value: f64) -> io::Result<()> {
         fmt_f64_or_null(&mut self.writer, value)
     }
 
-    #[inline]
     fn visit_char(&mut self, value: char) -> io::Result<()> {
         escape_char(&mut self.writer, value)
     }
 
-    #[inline]
     fn visit_str(&mut self, value: &str) -> io::Result<()> {
         escape_str(&mut self.writer, value)
     }
 
-    #[inline]
     fn visit_none(&mut self) -> io::Result<()> {
         self.visit_unit()
     }
 
-    #[inline]
     fn visit_some<V>(&mut self, value: V) -> io::Result<()>
         where V: ser::Serialize
     {
         value.serialize(self)
     }
 
-    #[inline]
     fn visit_unit(&mut self) -> io::Result<()> {
         self.writer.write_all(b"null")
     }
 
-    #[inline]
     fn visit_enum_unit(&mut self, _name: &str, variant: &str) -> io::Result<()> {
         try!(self.formatter.open(&mut self.writer, b'{'));
         try!(self.formatter.comma(&mut self.writer, true));
@@ -164,7 +145,6 @@ impl<W, F> ser::Serializer for Serializer<W, F>
         self.formatter.close(&mut self.writer, b'}')
     }
 
-    #[inline]
     fn visit_seq<V>(&mut self, mut visitor: V) -> io::Result<()>
         where V: ser::SeqVisitor,
     {
@@ -185,7 +165,6 @@ impl<W, F> ser::Serializer for Serializer<W, F>
 
     }
 
-    #[inline]
     fn visit_enum_seq<V>(&mut self, _name: &str, variant: &str, visitor: V) -> io::Result<()>
         where V: ser::SeqVisitor,
     {
@@ -197,7 +176,6 @@ impl<W, F> ser::Serializer for Serializer<W, F>
         self.formatter.close(&mut self.writer, b'}')
     }
 
-    #[inline]
     fn visit_seq_elt<T>(&mut self, value: T) -> io::Result<()>
         where T: ser::Serialize,
     {
@@ -207,7 +185,6 @@ impl<W, F> ser::Serializer for Serializer<W, F>
         value.serialize(self)
     }
 
-    #[inline]
     fn visit_map<V>(&mut self, mut visitor: V) -> io::Result<()>
         where V: ser::MapVisitor,
     {
@@ -227,7 +204,6 @@ impl<W, F> ser::Serializer for Serializer<W, F>
         }
     }
 
-    #[inline]
     fn visit_enum_map<V>(&mut self, _name: &str, variant: &str, visitor: V) -> io::Result<()>
         where V: ser::MapVisitor,
     {
@@ -240,7 +216,6 @@ impl<W, F> ser::Serializer for Serializer<W, F>
         self.formatter.close(&mut self.writer, b'}')
     }
 
-    #[inline]
     fn visit_map_elt<K, V>(&mut self, key: K, value: V) -> io::Result<()>
         where K: ser::Serialize,
               V: ser::Serialize,
@@ -253,7 +228,6 @@ impl<W, F> ser::Serializer for Serializer<W, F>
         value.serialize(self)
     }
 
-    #[inline]
     fn format() -> &'static str {
         "json"
     }
@@ -523,7 +497,6 @@ impl Formatter for StandardFormatter {
     }
 }
 
-#[inline]
 fn escape_bytes<W>(wr: &mut W, bytes: &[u8]) -> io::Result<()>
     where W: io::Write
 {
@@ -560,14 +533,12 @@ fn escape_bytes<W>(wr: &mut W, bytes: &[u8]) -> io::Result<()>
     Ok(())
 }
 
-#[inline]
 fn escape_str<W>(wr: &mut W, value: &str) -> io::Result<()>
     where W: io::Write
 {
     escape_bytes(wr, value.as_bytes())
 }
 
-#[inline]
 fn escape_char<W>(wr: &mut W, value: char) -> io::Result<()>
     where W: io::Write
 {
@@ -609,7 +580,7 @@ fn fmt_f64_or_null<W>(wr: &mut W, value: f64) -> io::Result<()>
 }
 
 /// Encode the specified struct into a YAML `[u8]` writer.
-#[inline]
+
 pub fn to_writer<W, T>(writer: &mut W, value: &T) -> io::Result<()>
     where W: io::Write,
           T: ser::Serialize,
@@ -632,7 +603,7 @@ pub fn to_writer_with_options<W, T>(writer: &mut W, value: &T,
 }
 
 /// Encode the specified struct into a YAML `[u8]` buffer.
-#[inline]
+
 pub fn to_vec<T>(value: &T) -> Vec<u8>
     where T: ser::Serialize,
 {
@@ -654,7 +625,7 @@ pub fn to_vec_with_options<T>(value: &T, options: PresentationDetails) -> Vec<u8
 }
 
 /// Encode the specified struct into a YAML `String` buffer.
-#[inline]
+
 pub fn to_string<T>(value: &T) -> Result<String, FromUtf8Error>
     where T: ser::Serialize
 {
