@@ -1,3 +1,4 @@
+use serde;
 use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize, Default)]
@@ -182,3 +183,73 @@ pub fn example_2_12_new() -> Vec<CartItem> {
         },
     ]
 }
+
+#[derive(Serialize, Deserialize)]
+pub struct LogEntry {
+    #[serde(rename="Time")]
+    time: Option<String>,
+    #[serde(rename="Date")]
+    date: Option<String>,
+    #[serde(rename="User")]
+    user: String,
+    #[serde(rename="Warning")]
+    warning: Option<String>,
+    #[serde(rename="Fatal")]
+    fatal: Option<String>,
+    #[serde(rename="Stack")]
+    stack: Option<Vec<StackFrame>>
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct StackFrame {
+    file: String,
+    line: u64,
+    code: String,
+}
+
+
+
+pub fn example_2_28_new() -> Vec<LogEntry> {
+    vec![
+        LogEntry {
+            time: Some("2001-11-23 15:01:42 -5".to_string()),
+            date: None,
+            user: "ed".to_string(),
+            warning: Some("This is an error message for the log file".to_string()),
+            fatal: None,
+            stack: None
+        },
+        LogEntry {
+            time: Some("2001-11-23 15:02:31 -5".to_string()),
+            date: None,
+            user: "ed".to_string(),
+            warning: Some("A slightly different error message.".to_string()),
+            fatal: None,
+            stack: None
+        },
+        LogEntry {
+            time: None,
+            date: Some("2001-11-23 15:03:17 -5".to_string()),
+            user: "ed".to_string(),
+            warning: None,
+            fatal: Some(r#"Unknown variable "bar""#.to_string()),
+            stack: Some(
+                vec![
+                    StackFrame {
+                        file: "TopClass.py".to_string(),
+                        line: 23,
+                        code: r#"x = MoreObject("345\n")"#.to_string(),
+                    },
+                    StackFrame {
+                        file: "MoreClass.py".to_string(),
+                        line: 58,
+                        code: "foo = bar".to_string(),
+                    }
+                ]
+            )
+        },
+    ]
+}
+
+
+

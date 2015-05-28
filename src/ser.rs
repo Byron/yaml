@@ -257,27 +257,61 @@ impl<W, F> ser::Serializer for Serializer<W, F>
     }
 }
 
-/// Scalar content can be written in block notation, using a literal style (indicated by “|”)
+/// Scalar content can be written in block notation, using a literal style (indicated by `|`)
 /// where all line breaks are significant. Alternatively, they can be written with the folded 
-/// style (denoted by “>”) where each line break is folded to a space unless it ends an empty or 
+/// style (denoted by `>`) where each line break is folded to a space unless it ends an empty or 
 /// a more-indented line.
 /// This style only works within a Block structure
 ///
 /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#style/block/)
 pub enum BlockScalarStyle {
-    Scalar,
+    /// Literal scalar blocks are indicated by the `|` character within the YAML file
+    /// and cause line-breaks to remain significant.
+    Literal,
+    /// Folded scalar blocks are indicated by the `>` character within the YAML file
+    /// and will translate line-breaks into spaces unless it ends with an empty or a more 
+    /// indented line.
     Folded,
+}
+
+/// Defines how scalars are presented in Flow-Style. FlowStyle
+/// All scalars can span multiple lines.
+pub enum FlowScalarStyle {
+    /// Scalars are not enclosed by identifiers at all, e.g. `key: value`
+    Plain,
+    /// Scalars are enclosed by single-quotes, which do not escaping, e.g. `key: 'value'`
+    SingleQuote,
+    /// Scalars are enclosed by double-quotes, and may contain escaped characters, 
+    ///
+    /// # Examples
+    /// * `key: "value \b1998\t1999\t2000 \x0d\x0a is \r\n"`
+    /// * `escaped: ' # Not a ''comment''.'`
+    DoubleQuote,
+
 }
 
 /// There are two groups of styles. Block styles use indentation to denote structure; In contrast,
 /// flow styles styles rely on explicit indicators.
 ///
 /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2766446)
-pub enum StructureStyle {
+pub enum Style {
     /// Uses indentation to denote structure
     Block,
     /// Uses explicit indicators
     Flow,
+}
+
+
+/// Defines the way we shall use to preserve newlines within folded scalar block 
+/// literals.
+pub enum FoldedBlockScalarNewlinePreservationMode {
+    /// A line break is indicated by a single blank line
+    BlankLines,
+    /// A line break is indicated by indenting a line by one additional level.
+    ///
+    /// **TODO(ST)**: is it depending on the `spaces_per_indentation_level` flag, or should this 
+    /// just be hardcoded to (say) two spaces ?
+    Indentation,
 }
 
 pub trait Formatter {
@@ -294,27 +328,97 @@ pub trait Formatter {
         where W: io::Write;
 }
 
-pub struct StandardFormatterOptions {
+pub struct PresentationDetails {
     /// Amount of spaces one indentation level will assume
     pub spaces_per_indentation_level: usize,
-    pub sequence_structure_style: StructureStyle,
-    pub mapping_structure_style: StructureStyle,
+    /// Defines the style for scalar values, like strings, e.g. `key: string_value`
+    /// that serialize to a string shorter than the `small_scalar_string_value_width_threshold`
+    pub small_scalar_string_value_style: Style,
+    /// Defines the style for scalar values, like strings, that are not considered
+    /// small as their string width is larger than the 
+    /// given `small_scalar_string_value_width_threshold`.
+    pub big_scalar_string_value_style: Style,
+    /// If the serialized string of a scalar value is smaller than this one, they
+    /// `small_scalar_string_value_style` is applied, otherwise it will 
+    /// be the `big_scalar_string_value_style`
+    pub small_scalar_string_value_width_threshold: usize,
+    /// Defines the style to use for all scalar values which are presented in Flow style
+    pub flow_scalar_value_style: FlowScalarStyle,
+    /// Defines the style to use for all scalar values which are presented in Block style
+    pub block_scalar_value_style: BlockScalarStyle,
+    /// Defines the style for sequences, e.g. lists and tuples
+    pub sequence_style: Style,
+    /// Defines the style of mappings, e.g. structures and HashMaps
+    pub mapping_style: Style,
+    /// Enforces a `---` indicator at the start of the document, even if `dump()` is used
+    pub explicit_document_start_indicator: bool,
+    /// Enforces a `...` indicator at the end of the document, even if `dump()` is used.
+    /// In case streaming documents, you would want to set this to true, to enforce an explicit 
+    /// end-of-document indicator as well.
+    pub explicit_document_end_indicator: bool,
+    /// The maximum width of a folded scalar line. It is a hint only, and if too small, some
+    /// scalar lines might end up with greater width than specified here.
+    pub folded_block_scalar_maximum_width_hint: usize,
+    /// Defines how newlines are indicated for folded block scalars
+    pub folded_block_scalar_newline_preservation_mode: FoldedBlockScalarNewlinePreservationMode,
 }
 
-impl Default for StandardFormatterOptions {
+impl Default for PresentationDetails {
     /// Standard YAML style, as human-readable as possible
     fn default() -> Self {
-        StandardFormatterOptions {
+        PresentationDetails {
             spaces_per_indentation_level: 2,
-            sequence_structure_style: StructureStyle::Block,
-            mapping_structure_style: StructureStyle::Block,
+            small_scalar_string_value_style: Style::Flow,
+            big_scalar_string_value_style: Style::Block,
+            small_scalar_string_value_width_threshold: 20,
+            flow_scalar_value_style: FlowScalarStyle::Plain,
+            block_scalar_value_style: BlockScalarStyle::Literal,
+            sequence_style: Style::Block,
+            mapping_style: Style::Block,
+            explicit_document_start_indicator: false,
+            explicit_document_end_indicator: false,
+            folded_block_scalar_maximum_width_hint: 0,
+            folded_block_scalar_newline_preservation_mode:
+                                        FoldedBlockScalarNewlinePreservationMode::Indentation
+        }
+    }
+}
+
+impl PresentationDetails {
+    /// Convenience method for completeness, returning details producing a human-readable 
+    /// YAML document
+    fn yaml() -> PresentationDetails {
+        Default::default()
+    }
+
+    /// Returns PresentationDetails which produce a document compatible with the JSON format.
+    /// 
+    /// *NOTE*: This works because JSON is a valid subset of YAML
+    /// **Warning**: Depending on your data structures, the serializer might insert 
+    /// Tags to further specify the underlying type, which would yield a document which 
+    /// doesn't satisfy JSON requirements.
+    fn json() -> PresentationDetails {
+        PresentationDetails {
+            spaces_per_indentation_level: 2,
+            small_scalar_string_value_style: Style::Flow,
+            big_scalar_string_value_style: Style::Flow,
+            small_scalar_string_value_width_threshold: 20,         // doesn't matter
+            flow_scalar_value_style: FlowScalarStyle::DoubleQuote,
+            block_scalar_value_style: BlockScalarStyle::Literal,   // doesn't matter
+            sequence_style: Style::Flow,
+            mapping_style: Style::Flow,
+            explicit_document_start_indicator: false,
+            explicit_document_end_indicator: false,
+            folded_block_scalar_maximum_width_hint: 0,              // doesn't matter
+            folded_block_scalar_newline_preservation_mode:          // doesn't matter
+                                        FoldedBlockScalarNewlinePreservationMode::Indentation
         }
     }
 }
 
 pub struct StandardFormatter {
     current_indent: usize,
-    opts: StandardFormatterOptions,
+    opts: PresentationDetails,
 }
 
 impl StandardFormatter {
@@ -322,7 +426,7 @@ impl StandardFormatter {
         StandardFormatter::with_options(Default::default())
     }
 
-    fn with_options(options: StandardFormatterOptions) -> Self {
+    fn with_options(options: PresentationDetails) -> Self {
         StandardFormatter {
             current_indent: 0,
             opts: options,

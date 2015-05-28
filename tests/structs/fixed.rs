@@ -1,3 +1,4 @@
+use serde;
 use std::collections::HashMap;
 #[derive(Default)]
 pub struct Data1 {
@@ -1380,4 +1381,420 @@ pub fn example_2_12_new() -> Vec<CartItem> {
     vec!(CartItem { item : "Super Hoop" . to_string (  ) , quantity : 1 } ,
          CartItem { item : "Basketball" . to_string (  ) , quantity : 4 } ,
          CartItem { item : "Big Shoes" . to_string (  ) , quantity : 1 } ,)
+}
+pub struct LogEntry {
+    time: Option<String>,
+    date: Option<String>,
+    user: String,
+    warning: Option<String>,
+    fatal: Option<String>,
+    stack: Option<Vec<StackFrame>>,
+}
+#[automatically_derived]
+impl ::serde::de::Deserialize for LogEntry {
+    fn deserialize<__D>(deserializer: &mut __D)
+     -> ::std::result::Result<LogEntry, __D::Error> where
+     __D: ::serde::de::Deserializer {
+        {
+            #[allow(non_camel_case_types)]
+            enum __Field {
+                __field0,
+                __field1,
+                __field2,
+                __field3,
+                __field4,
+                __field5,
+            }
+            impl ::serde::de::Deserialize for __Field {
+                #[inline]
+                fn deserialize<D>(deserializer: &mut D)
+                 -> ::std::result::Result<__Field, D::Error> where
+                 D: ::serde::de::Deserializer {
+                    use std::marker::PhantomData;
+                    struct __FieldVisitor<D> {
+                        phantom: PhantomData<D>,
+                    }
+                    impl <__D> ::serde::de::Visitor for __FieldVisitor<__D>
+                     where __D: ::serde::de::Deserializer {
+                        type
+                        Value
+                        =
+                        __Field;
+                        fn visit_str<E>(&mut self, value: &str)
+                         -> ::std::result::Result<__Field, E> where
+                         E: ::serde::de::Error {
+                            match value {
+                                "Time" => { Ok(__Field::__field0) }
+                                "Date" => { Ok(__Field::__field1) }
+                                "User" => { Ok(__Field::__field2) }
+                                "Warning" => { Ok(__Field::__field3) }
+                                "Fatal" => { Ok(__Field::__field4) }
+                                "Stack" => { Ok(__Field::__field5) }
+                                _ => {
+                                    Err(::serde::de::Error::unknown_field_error(value))
+                                }
+                            }
+                        }
+                        fn visit_bytes<E>(&mut self, value: &[u8])
+                         -> ::std::result::Result<__Field, E> where
+                         E: ::serde::de::Error {
+                            match ::std::str::from_utf8(value) {
+                                Ok(s) => self.visit_str(s),
+                                _ => Err(::serde::de::Error::syntax_error()),
+                            }
+                        }
+                    }
+                    deserializer.visit(__FieldVisitor::<D>{phantom:
+                                                               PhantomData,})
+                }
+            }
+            struct __Visitor<__D: ::serde::de::Deserializer>(::std::marker::PhantomData<__D>);
+            impl <__D: ::serde::de::Deserializer> ::serde::de::Visitor for
+             __Visitor<__D> {
+                type
+                Value
+                =
+                LogEntry;
+                #[inline]
+                fn visit_map<__V>(&mut self, mut visitor: __V)
+                 -> ::std::result::Result<LogEntry, __V::Error> where
+                 __V: ::serde::de::MapVisitor {
+                    {
+                        let mut __field0 = None;
+                        let mut __field1 = None;
+                        let mut __field2 = None;
+                        let mut __field3 = None;
+                        let mut __field4 = None;
+                        let mut __field5 = None;
+                        loop  {
+                            match try!(visitor . visit_key (  )) {
+                                Some(key) => {
+                                    match key {
+                                        __Field::__field0 => {
+                                            __field0 =
+                                                Some(try!(visitor .
+                                                          visit_value (  )));
+                                        }
+                                        __Field::__field1 => {
+                                            __field1 =
+                                                Some(try!(visitor .
+                                                          visit_value (  )));
+                                        }
+                                        __Field::__field2 => {
+                                            __field2 =
+                                                Some(try!(visitor .
+                                                          visit_value (  )));
+                                        }
+                                        __Field::__field3 => {
+                                            __field3 =
+                                                Some(try!(visitor .
+                                                          visit_value (  )));
+                                        }
+                                        __Field::__field4 => {
+                                            __field4 =
+                                                Some(try!(visitor .
+                                                          visit_value (  )));
+                                        }
+                                        __Field::__field5 => {
+                                            __field5 =
+                                                Some(try!(visitor .
+                                                          visit_value (  )));
+                                        }
+                                    }
+                                }
+                                _ => break ,
+                            }
+                        }
+                        let __field0 =
+                            match __field0 {
+                                Some(__field0) => __field0,
+                                None =>
+                                try!(visitor . missing_field ( "Time" )),
+                            };
+                        let __field1 =
+                            match __field1 {
+                                Some(__field1) => __field1,
+                                None =>
+                                try!(visitor . missing_field ( "Date" )),
+                            };
+                        let __field2 =
+                            match __field2 {
+                                Some(__field2) => __field2,
+                                None =>
+                                try!(visitor . missing_field ( "User" )),
+                            };
+                        let __field3 =
+                            match __field3 {
+                                Some(__field3) => __field3,
+                                None =>
+                                try!(visitor . missing_field ( "Warning" )),
+                            };
+                        let __field4 =
+                            match __field4 {
+                                Some(__field4) => __field4,
+                                None =>
+                                try!(visitor . missing_field ( "Fatal" )),
+                            };
+                        let __field5 =
+                            match __field5 {
+                                Some(__field5) => __field5,
+                                None =>
+                                try!(visitor . missing_field ( "Stack" )),
+                            };
+                        try!(visitor . end (  ));
+                        Ok(LogEntry{time: __field0,
+                                    date: __field1,
+                                    user: __field2,
+                                    warning: __field3,
+                                    fatal: __field4,
+                                    stack: __field5,})
+                    }
+                }
+            }
+            deserializer.visit_named_map("LogEntry",
+                                         __Visitor::<__D>(::std::marker::PhantomData))
+        }
+    }
+}
+#[automatically_derived]
+impl ::serde::ser::Serialize for LogEntry {
+    fn serialize<__S>(&self, serializer: &mut __S)
+     -> ::std::result::Result<(), __S::Error> where
+     __S: ::serde::ser::Serializer {
+        {
+            struct Visitor<'__a> {
+                state: usize,
+                value: &'__a LogEntry,
+            }
+            impl <'__a> ::serde::ser::MapVisitor for Visitor<'__a> {
+                #[inline]
+                fn visit<S>(&mut self, serializer: &mut S)
+                 -> ::std::result::Result<Option<()>, S::Error> where
+                 S: ::serde::ser::Serializer {
+                    match self.state {
+                        0usize => {
+                            self.state += 1;
+                            Ok(Some(try!(serializer . visit_map_elt (
+                                         "Time" , &self.value.time , ))))
+                        }
+                        1usize => {
+                            self.state += 1;
+                            Ok(Some(try!(serializer . visit_map_elt (
+                                         "Date" , &self.value.date , ))))
+                        }
+                        2usize => {
+                            self.state += 1;
+                            Ok(Some(try!(serializer . visit_map_elt (
+                                         "User" , &self.value.user , ))))
+                        }
+                        3usize => {
+                            self.state += 1;
+                            Ok(Some(try!(serializer . visit_map_elt (
+                                         "Warning" , &self.value.warning ,
+                                         ))))
+                        }
+                        4usize => {
+                            self.state += 1;
+                            Ok(Some(try!(serializer . visit_map_elt (
+                                         "Fatal" , &self.value.fatal , ))))
+                        }
+                        5usize => {
+                            self.state += 1;
+                            Ok(Some(try!(serializer . visit_map_elt (
+                                         "Stack" , &self.value.stack , ))))
+                        }
+                        _ => Ok(None),
+                    }
+                }
+                #[inline]
+                fn len(&self) -> Option<usize> { Some(6usize) }
+            }
+            serializer.visit_named_map("LogEntry",
+                                       Visitor{value: self, state: 0,})
+        }
+    }
+}
+pub struct StackFrame {
+    file: String,
+    line: u64,
+    code: String,
+}
+#[automatically_derived]
+impl ::serde::de::Deserialize for StackFrame {
+    fn deserialize<__D>(deserializer: &mut __D)
+     -> ::std::result::Result<StackFrame, __D::Error> where
+     __D: ::serde::de::Deserializer {
+        {
+            #[allow(non_camel_case_types)]
+            enum __Field { __field0, __field1, __field2, }
+            impl ::serde::de::Deserialize for __Field {
+                #[inline]
+                fn deserialize<D>(deserializer: &mut D)
+                 -> ::std::result::Result<__Field, D::Error> where
+                 D: ::serde::de::Deserializer {
+                    use std::marker::PhantomData;
+                    struct __FieldVisitor<D> {
+                        phantom: PhantomData<D>,
+                    }
+                    impl <__D> ::serde::de::Visitor for __FieldVisitor<__D>
+                     where __D: ::serde::de::Deserializer {
+                        type
+                        Value
+                        =
+                        __Field;
+                        fn visit_str<E>(&mut self, value: &str)
+                         -> ::std::result::Result<__Field, E> where
+                         E: ::serde::de::Error {
+                            match value {
+                                "file" => { Ok(__Field::__field0) }
+                                "line" => { Ok(__Field::__field1) }
+                                "code" => { Ok(__Field::__field2) }
+                                _ => {
+                                    Err(::serde::de::Error::unknown_field_error(value))
+                                }
+                            }
+                        }
+                        fn visit_bytes<E>(&mut self, value: &[u8])
+                         -> ::std::result::Result<__Field, E> where
+                         E: ::serde::de::Error {
+                            match ::std::str::from_utf8(value) {
+                                Ok(s) => self.visit_str(s),
+                                _ => Err(::serde::de::Error::syntax_error()),
+                            }
+                        }
+                    }
+                    deserializer.visit(__FieldVisitor::<D>{phantom:
+                                                               PhantomData,})
+                }
+            }
+            struct __Visitor<__D: ::serde::de::Deserializer>(::std::marker::PhantomData<__D>);
+            impl <__D: ::serde::de::Deserializer> ::serde::de::Visitor for
+             __Visitor<__D> {
+                type
+                Value
+                =
+                StackFrame;
+                #[inline]
+                fn visit_map<__V>(&mut self, mut visitor: __V)
+                 -> ::std::result::Result<StackFrame, __V::Error> where
+                 __V: ::serde::de::MapVisitor {
+                    {
+                        let mut __field0 = None;
+                        let mut __field1 = None;
+                        let mut __field2 = None;
+                        loop  {
+                            match try!(visitor . visit_key (  )) {
+                                Some(key) => {
+                                    match key {
+                                        __Field::__field0 => {
+                                            __field0 =
+                                                Some(try!(visitor .
+                                                          visit_value (  )));
+                                        }
+                                        __Field::__field1 => {
+                                            __field1 =
+                                                Some(try!(visitor .
+                                                          visit_value (  )));
+                                        }
+                                        __Field::__field2 => {
+                                            __field2 =
+                                                Some(try!(visitor .
+                                                          visit_value (  )));
+                                        }
+                                    }
+                                }
+                                _ => break ,
+                            }
+                        }
+                        let __field0 =
+                            match __field0 {
+                                Some(__field0) => __field0,
+                                None =>
+                                try!(visitor . missing_field ( "file" )),
+                            };
+                        let __field1 =
+                            match __field1 {
+                                Some(__field1) => __field1,
+                                None =>
+                                try!(visitor . missing_field ( "line" )),
+                            };
+                        let __field2 =
+                            match __field2 {
+                                Some(__field2) => __field2,
+                                None =>
+                                try!(visitor . missing_field ( "code" )),
+                            };
+                        try!(visitor . end (  ));
+                        Ok(StackFrame{file: __field0,
+                                      line: __field1,
+                                      code: __field2,})
+                    }
+                }
+            }
+            deserializer.visit_named_map("StackFrame",
+                                         __Visitor::<__D>(::std::marker::PhantomData))
+        }
+    }
+}
+#[automatically_derived]
+impl ::serde::ser::Serialize for StackFrame {
+    fn serialize<__S>(&self, serializer: &mut __S)
+     -> ::std::result::Result<(), __S::Error> where
+     __S: ::serde::ser::Serializer {
+        {
+            struct Visitor<'__a> {
+                state: usize,
+                value: &'__a StackFrame,
+            }
+            impl <'__a> ::serde::ser::MapVisitor for Visitor<'__a> {
+                #[inline]
+                fn visit<S>(&mut self, serializer: &mut S)
+                 -> ::std::result::Result<Option<()>, S::Error> where
+                 S: ::serde::ser::Serializer {
+                    match self.state {
+                        0usize => {
+                            self.state += 1;
+                            Ok(Some(try!(serializer . visit_map_elt (
+                                         "file" , &self.value.file , ))))
+                        }
+                        1usize => {
+                            self.state += 1;
+                            Ok(Some(try!(serializer . visit_map_elt (
+                                         "line" , &self.value.line , ))))
+                        }
+                        2usize => {
+                            self.state += 1;
+                            Ok(Some(try!(serializer . visit_map_elt (
+                                         "code" , &self.value.code , ))))
+                        }
+                        _ => Ok(None),
+                    }
+                }
+                #[inline]
+                fn len(&self) -> Option<usize> { Some(3usize) }
+            }
+            serializer.visit_named_map("StackFrame",
+                                       Visitor{value: self, state: 0,})
+        }
+    }
+}
+pub fn example_2_28_new() -> Vec<LogEntry> {
+    vec!(LogEntry {
+         time : Some ( "2001-11-23 15:01:42 -5" . to_string (  ) ) , date :
+         None , user : "ed" . to_string (  ) , warning : Some (
+         "This is an error message for the log file" . to_string (  ) ) ,
+         fatal : None , stack : None } , LogEntry {
+         time : Some ( "2001-11-23 15:02:31 -5" . to_string (  ) ) , date :
+         None , user : "ed" . to_string (  ) , warning : Some (
+         "A slightly different error message." . to_string (  ) ) , fatal :
+         None , stack : None } , LogEntry {
+         time : None , date : Some ( "2001-11-23 15:03:17 -5" . to_string (  )
+         ) , user : "ed" . to_string (  ) , warning : None , fatal : Some (
+         r#"Unknown variable "bar""# . to_string (  ) ) , stack : Some (
+         vec ! [
+         StackFrame {
+         file : "TopClass.py" . to_string (  ) , line : 23 , code :
+         r#"x = MoreObject("345\n")"# . to_string (  ) , } , StackFrame {
+         file : "MoreClass.py" . to_string (  ) , line : 58 , code :
+         "foo = bar" . to_string (  ) , } ] ) } ,)
 }

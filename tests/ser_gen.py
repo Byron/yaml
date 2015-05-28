@@ -148,7 +148,17 @@ rbi:
 - Ken Griffey
 """
     assert res == yaml.dump(d, **opts), "Not actually supported by PyYaml"
-
+    # But we put it anyway ... maybe useful for deserialzation testing
+    d = """---
+hr:
+  - Mark McGwire
+  # Following node labeled SS
+  - &SS Sammy Sosa
+rbi:
+  - *SS # Subsequent occurrence
+  - Ken Griffey
+"""
+    write_const_str_rs(sys.stdout, 'example_2_10', d)
 
     # NOTE: Can't produce the example in python as we must use tuples for dict keys, which 
     # don't translate to lists.
@@ -178,6 +188,239 @@ rbi:
     # Example 2.12. Compact Nested Mapping
     write_const_str_rs(sys.stdout, 'example_2_12', yaml.dump(d, **opts))
 
+    d = ("\//||\/||\n" +
+         "// ||  ||__")
+
+    opts['default_style'] = '|'
+    # Example 2.13.  In literals
+    write_const_str_rs(sys.stdout, 'example_2_13', yaml.dump(d, **opts))
+
+    d = "Mark McGwire's year was crippled by a knee injury."
+    opts['default_style'] = '>'
+    opts['width'] = 14
+
+    # Example 2.14.  In the folded scalars,
+    # newlines become spaces
+    write_const_str_rs(sys.stdout, 'example_2_14', yaml.dump(d, **opts))
+
+
+    d = """>
+  Sammy Sosa completed another
+  fine season with great stats.
+
+    63 Home Runs
+    0.288 Batting Average
+
+  What a year!
+"""
+    # Example 2.15.  Folded newlines are preserved
+    # for "more indented" and blank lines
+    # NOTE: For deserialization testing only, as the example can't be manufactured as there are two 
+    # different line-break styles within one string literal
+    write_const_str_rs(sys.stdout, 'example_2_15', d)
+
+
+    d = """name: Mark McGwire
+accomplishment: >
+  Mark set a major league
+  home run record in 1998.
+stats: |
+  65 Home Runs
+  0.278 Batting Average
+"""
+    # Example 2.16.  Indentation determines scope
+    write_const_str_rs(sys.stdout, 'example_2_16', d)
+
+    d = r"""unicode: "Sosa did fine.\u263A"
+control: "\b1998\t1999\t2000\n"
+hex esc: "\x0d\x0a is \r\n"
+
+single: '"Howdy!" he cried.'
+quoted: ' # Not a ''comment''.'
+tie-fighter: '|\-*-/|'
+"""
+    # Example 2.17. Quoted Scalars
+    write_const_str_rs(sys.stdout, 'example_2_17', d)
+
+    d = r"""plain:
+  This unquoted scalar
+  spans many lines.
+
+quoted: "So does this
+  quoted scalar.\n"
+"""
+
+    # Example 2.18. Multi-line Flow Scalars
+    write_const_str_rs(sys.stdout, 'example_2_18', d)
+
+    d = """canonical: 12345
+decimal: +12345
+octal: 0o14
+hexadecimal: 0xC
+"""
+    
+    # Example 2.19. Integers
+    write_const_str_rs(sys.stdout, 'example_2_19', d)
+
+    d = """canonical: 1.23015e+3
+exponential: 12.3015e+02
+fixed: 1230.15
+negative infinity: -.inf
+not a number: .NaN
+"""
+
+    # Example 2.20. Floating Point
+    write_const_str_rs(sys.stdout, 'example_2_20', d)
+
+    d = """null:
+booleans: [ true, false ]
+string: '012345'
+"""
+
+    # Example 2.21. Miscellaneous
+    write_const_str_rs(sys.stdout, 'example_2_21', d)
+
+
+    d = """canonical: 2001-12-15T02:59:43.1Z
+iso8601: 2001-12-14t21:59:43.10-05:00
+spaced: 2001-12-14 21:59:43.10 -5
+date: 2002-12-14
+"""
+    # Example 2.22. Timestamps
+    write_const_str_rs(sys.stdout, 'example_2_22', d)
+
+    d = """---
+not-date: !!str 2002-04-28
+
+picture: !!binary |
+ R0lGODlhDAAMAIQAAP//9/X
+ 17unp5WZmZgAAAOfn515eXv
+ Pz7Y6OjuDg4J+fn5OTk6enp
+ 56enmleECcgggoBADs=
+
+application specific tag: !something |
+ The semantics of the tag
+ above may be different for
+ different documents.
+"""
+
+    # Example 2.23. Various Explicit Tags
+    write_const_str_rs(sys.stdout, 'example_2_23', d)
+
+    d = """%TAG ! tag:clarkevans.com,2002:
+--- !shape
+  # Use the ! handle for presenting
+  # tag:clarkevans.com,2002:circle
+- !circle
+  center: &ORIGIN {x: 73, y: 129}
+  radius: 7
+- !line
+  start: *ORIGIN
+  finish: { x: 89, y: 102 }
+- !label
+  start: *ORIGIN
+  color: 0xFFEEBB
+  text: Pretty vector drawing.
+"""
+
+    # Example 2.24. Global Tags
+    write_const_str_rs(sys.stdout, 'example_2_24', d)
+
+
+    d = """# Sets are represented as a
+# Mapping where each key is
+# associated with a null value
+--- !!set
+? Mark McGwire
+? Sammy Sosa
+? Ken Griff
+"""
+    # Example 2.25. Unordered Sets
+    write_const_str_rs(sys.stdout, 'example_2_25', d)
+
+    d = """# Ordered maps are represented as
+# A sequence of mappings, with
+# each mapping having one key
+--- !!omap
+- Mark McGwire: 65
+- Sammy Sosa: 63
+- Ken Griffy: 58
+"""
+
+    # Example 2.26. Ordered Mappings
+    write_const_str_rs(sys.stdout, 'example_2_26', d)
+
+
+    d = """
+--- !<tag:clarkevans.com,2002:invoice>
+invoice: 34843
+date   : 2001-01-23
+bill-to: &id001
+    given  : Chris
+    family : Dumars
+    address:
+        lines: |
+            458 Walkman Dr.
+            Suite #292
+        city    : Royal Oak
+        state   : MI
+        postal  : 48046
+ship-to: *id001
+product:
+    - sku         : BL394D
+      quantity    : 4
+      description : Basketball
+      price       : 450.00
+    - sku         : BL4438H
+      quantity    : 1
+      description : Super Hoop
+      price       : 2392.00
+tax  : 251.42
+total: 4443.52
+comments:
+    Late afternoon is best.
+    Backup contact is Nancy
+    Billsmer @ 338-4338.
+"""
+
+    # Example 2.27. Invoice
+    write_const_str_rs(sys.stdout, 'example_2_27', d)
+
+    d = [
+        OrderedDict((
+            ('Time', '2001-11-23 15:01:42 -5'),
+            ('User', 'ed'),
+            ('Warning', 'This is an error message for the log file'),
+        )),
+        OrderedDict((
+            ('Time', '2001-11-23 15:02:31 -5'), 
+            ('User', 'ed'),
+            ('Warning', 'A slightly different error message.'),
+        )),
+        OrderedDict((
+            ('Date', '2001-11-23 15:03:17 -5'),
+            ('User', 'ed'),
+            ('Fatal', 'Unknown variable "bar"'),
+            ('Stack', [
+                OrderedDict((
+                    ('file', 'TopClass.py'),
+                    ('line', 23),
+                    ('code', r'x = MoreObject("345\n")')
+                )),
+                OrderedDict((
+                    ('file', 'MoreClass.py'),
+                    ('line', 58),
+                    ('code', 'foo = bar'),
+                )),
+            ]),
+        ))
+    ]
+
+    opts['width'] = 20
+    opts['default_style'] = None
+
+    # Example 2.28. Log File
+    write_const_str_rs(sys.stdout, 'example_2_28', yaml.dump_all(d, **opts))
 
 else:
     raise AssertionError("Cannot be used as library")
