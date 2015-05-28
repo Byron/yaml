@@ -1,4 +1,3 @@
-use serde;
 use std::collections::HashMap;
 #[derive(Default)]
 pub struct Data1 {

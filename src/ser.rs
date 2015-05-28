@@ -7,7 +7,9 @@ use serde::ser;
 /// The only allowed indentation character
 const INDENT: &'static [u8] = b" ";
 
-/// A structure for implementing serialization to JSON.
+/// A receiver for serialization events which are translated into a stream of characters.
+///
+/// The particular format is handled using a `Formatter` implementation.
 pub struct Serializer<W, F> {
     writer: W,
     formatter: F,
@@ -379,6 +381,8 @@ pub trait Formatter {
         where W: io::Write;
 }
 
+
+/// Options to define how YAML character streams will look like.
 pub struct PresentationDetails {
     /// Amount of spaces one indentation level will assume
     pub spaces_per_indentation_level: usize,
@@ -428,7 +432,7 @@ impl Default for PresentationDetails {
 impl PresentationDetails {
     /// Convenience method for completeness, returning details producing a human-readable 
     /// YAML document
-    fn yaml() -> PresentationDetails {
+    pub fn yaml() -> PresentationDetails {
         Default::default()
     }
 
@@ -444,7 +448,7 @@ impl PresentationDetails {
     ///   - As JSON only provides a single namespace for documents, valid multi-document JSON
     ///     files cannot be generated. Instead, consider serializing multiple documents as list 
     ///     in a single document.
-    fn json() -> PresentationDetails {
+    pub fn json() -> PresentationDetails {
         PresentationDetails {
             spaces_per_indentation_level: 2,
             small_scalar_string_value_style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote),
@@ -458,6 +462,12 @@ impl PresentationDetails {
     }
 }
 
+/// Generates a stream of characters from serialization events produces by values 
+/// implementing the `Serialize` trait.
+///
+/// By default it will produce human-readable YAML documents, but may be configured
+/// using the `PresentationDetails` structure to produce documents according to your 
+/// requirements.
 pub struct StandardFormatter {
     current_indent: usize,
     opts: PresentationDetails,
@@ -514,7 +524,7 @@ impl Formatter for StandardFormatter {
 }
 
 #[inline]
-pub fn escape_bytes<W>(wr: &mut W, bytes: &[u8]) -> io::Result<()>
+fn escape_bytes<W>(wr: &mut W, bytes: &[u8]) -> io::Result<()>
     where W: io::Write
 {
     try!(wr.write_all(b"\""));
@@ -551,7 +561,7 @@ pub fn escape_bytes<W>(wr: &mut W, bytes: &[u8]) -> io::Result<()>
 }
 
 #[inline]
-pub fn escape_str<W>(wr: &mut W, value: &str) -> io::Result<()>
+fn escape_str<W>(wr: &mut W, value: &str) -> io::Result<()>
     where W: io::Write
 {
     escape_bytes(wr, value.as_bytes())
@@ -598,7 +608,7 @@ fn fmt_f64_or_null<W>(wr: &mut W, value: f64) -> io::Result<()>
     }
 }
 
-/// Encode the specified struct into a json `[u8]` writer.
+/// Encode the specified struct into a YAML `[u8]` writer.
 #[inline]
 pub fn to_writer<W, T>(writer: &mut W, value: &T) -> io::Result<()>
     where W: io::Write,
@@ -609,7 +619,19 @@ pub fn to_writer<W, T>(writer: &mut W, value: &T) -> io::Result<()>
     Ok(())
 }
 
-/// Encode the specified struct into a json `[u8]` buffer.
+/// Encode the specified struct into a json `[u8]` writer, with the given 
+/// options to define how the character stream should look like.
+pub fn to_writer_with_options<W, T>(writer: &mut W, value: &T, 
+                                    options: PresentationDetails) -> io::Result<()>
+    where W: io::Write,
+          T: ser::Serialize,
+{
+    let mut ser = Serializer::with_formatter(writer, StandardFormatter::with_options(options));
+    try!(value.serialize(&mut ser));
+    Ok(())
+}
+
+/// Encode the specified struct into a YAML `[u8]` buffer.
 #[inline]
 pub fn to_vec<T>(value: &T) -> Vec<u8>
     where T: ser::Serialize,
@@ -621,12 +643,32 @@ pub fn to_vec<T>(value: &T) -> Vec<u8>
     writer
 }
 
-/// Encode the specified struct into a json `String` buffer.
+/// Encode the specified struct into a YAML `[u8]` buffer with the given options
+/// to define how the character stream should look like.
+pub fn to_vec_with_options<T>(value: &T, options: PresentationDetails) -> Vec<u8>
+    where T: ser::Serialize,
+{
+    let mut writer = Vec::with_capacity(128);
+    to_writer_with_options(&mut writer, value, options).unwrap();
+    writer
+}
+
+/// Encode the specified struct into a YAML `String` buffer.
 #[inline]
 pub fn to_string<T>(value: &T) -> Result<String, FromUtf8Error>
     where T: ser::Serialize
 {
     let vec = to_vec(value);
+    String::from_utf8(vec)
+}
+
+/// Encode the specified struct into a YAML `String` buffer with the given 
+/// options to define how the character stream should look like.
+pub fn to_string_with_options<T>(value: &T, 
+                                 options: PresentationDetails) -> Result<String, FromUtf8Error>
+    where T: ser::Serialize
+{
+    let vec = to_vec_with_options(value, options);
     String::from_utf8(vec)
 }
 

@@ -2,6 +2,8 @@
 extern crate serde;
 extern crate serde_yaml as yaml;
 
+use yaml::ser::PresentationDetails;
+
 mod structs;
 mod ser_data;
 
@@ -18,8 +20,8 @@ fn ser_yaml() {
 #[test]
 fn ser_json() {
     let d = structs::Data1::default();
-    // TODO(stt) need differnt options
-    assert_eq!(yaml::to_string(&d).unwrap(), ser_data::DATA1_DEFAULT_JSON);
+    assert_eq!(yaml::to_string_with_options(&d, PresentationDetails::json()).unwrap(), 
+                                                ser_data::DATA1_DEFAULT_JSON);
 }
 
 #[test]
@@ -81,14 +83,14 @@ fn example_2_6() {
 fn example_2_7() {
     let _ = structs::Example_2_7::default();
 
-    panic!("Multi-document handling needs implementation");
+    panic!("Multi-document handling needs implementation: {}", ser_data::EXAMPLE_2_7);
 }
 
 #[test]
 fn example_2_8() {
     let _ = structs::Example_2_8::default();
 
-    panic!("Multi-document handling needs implementation");
+    panic!("Multi-document handling needs implementation: {}", ser_data::EXAMPLE_2_8);
 }
 
 #[test]

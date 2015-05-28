@@ -17,6 +17,8 @@
 //! [yaml-spec]: http://www.yaml.org/spec/1.2/spec.html
 extern crate serde;
 
-mod ser;
+pub mod ser;
 
-pub use ser::{to_writer, to_string};
+pub use ser::{to_writer, to_writer_with_options};
+pub use ser::{to_string, to_string_with_options};
+pub use ser::{to_vec, to_vec_with_options};
