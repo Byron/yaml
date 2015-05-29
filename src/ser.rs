@@ -174,7 +174,13 @@ impl<W, F> ser::Serializer for Serializer<W, F>
     }
 
     fn visit_unit(&mut self) -> io::Result<()> {
-        self.writer.write_all(b"null")
+        match self.formatter.options().mapping_details.null_style {
+            NullScalarStyle::HideValue
+            |NullScalarStyle::HideEntry 
+                => Ok(()),
+            NullScalarStyle::Show
+                => encode_ascii(&mut self.writer, &self.formatter.options().encoding, b"null"),
+        }
     }
 
     fn visit_enum_unit(&mut self, _name: &str, variant: &str) -> io::Result<()> {
@@ -280,6 +286,7 @@ impl<W, F> ser::Serializer for Serializer<W, F>
 /// literals.
 ///
 /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2760844)
+#[derive(Debug, PartialEq)]
 pub enum FoldedBlockScalarNewlinePreservationMode {
     /// A line break is indicated by a single blank line
     BlankLines,
@@ -298,6 +305,7 @@ pub enum FoldedBlockScalarNewlinePreservationMode {
 /// This style only works within a Block structure
 ///
 /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#style/block/)
+#[derive(Debug, PartialEq)]
 pub enum BlockScalarStyle {
     /// Literal scalar blocks are indicated by the `|` character within the YAML file
     /// and cause line-breaks to remain significant.
@@ -320,6 +328,7 @@ pub enum BlockScalarStyle {
 /// Therefore, the Flow style is a form of a folded scalar style.
 ///
 /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2786942)
+#[derive(Debug, PartialEq)]
 pub enum FlowScalarStyle {
     /// Scalars are not enclosed by identifiers at all, e.g. `key: value`
     Plain,
@@ -338,6 +347,7 @@ pub enum FlowScalarStyle {
 /// flow styles styles rely on explicit indicators.
 ///
 /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2766446)
+#[derive(Debug, PartialEq)]
 pub enum StructureStyle {
     /// Uses indentation to denote structure
     Block,
@@ -350,6 +360,7 @@ pub enum StructureStyle {
 /// Specify how scalars are serialized.
 ///
 /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2766446)
+#[derive(Debug, PartialEq)]
 pub enum ScalarStyle {
     /// Use indentation to denote scalar values
     Block(BlockScalarStyle),
@@ -372,6 +383,7 @@ pub enum ScalarStyle {
 /// Identifies the character encoding to use.
 ///
 /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2771184)
+#[derive(Debug, PartialEq)]
 pub enum Encoding {
     /// See the [WIKI entry](http://en.wikipedia.org/wiki/UTF-8) for details
     /// We will write a BOM at the beginning of 
@@ -382,7 +394,7 @@ impl AsRef<[u8]> for Encoding {
     /// Convert ourselves to the ByteOrderMark, or b"" if there is no BOM
     fn as_ref(&self) -> &[u8] {
         match *self {
-            Encoding::Utf8(Some(ref bom)) 
+            Encoding::Utf8(Some(_)) 
                 => b"\xEF\xBB\xBF",
             Encoding::Utf8(None)
                 => b"",
@@ -391,12 +403,8 @@ impl AsRef<[u8]> for Encoding {
 }
 
 /// A marker to identify whether or not a byte order mark should be used
-pub enum ByteOrderMark {
-    /// We emit the BOM exactly once, even in a multi-document stream
-    PerStream,
-    /// We emit the BOM once per document
-    PerDocument,
-}
+#[derive(Debug, PartialEq)]
+pub struct ByteOrderMark;
 
 impl Default for Encoding {
     fn default() -> Self {
@@ -406,6 +414,7 @@ impl Default for Encoding {
 
 /// Combines all information necessary to serialize a structure, like mappings 
 /// and sequences.
+#[derive(Debug, PartialEq)]
 pub struct StructureDetails {
     pub style: StructureStyle,
     /// If true, a `!!tag` will be serialized even though an implicit one would do as well.
@@ -413,17 +422,34 @@ pub struct StructureDetails {
 }
 
 /// Contains all information to describe how to serialize mappings in YAML.
+#[derive(Debug, PartialEq)]
 pub struct MappingDetails {
-    details: StructureDetails,
+    pub details: StructureDetails,
     /// If true, use an explicit form to describe keys and values in a mapping, for all 
     /// keys and values.
     /// If false, it will only be used if the mapping key is a non-scalar one.
     /// 
     /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2798425)
-    explicit_block_entries: bool
+    pub explicit_block_entries: bool,
+
+    /// Determine how null values are presented
+    pub null_style: NullScalarStyle
+}
+
+/// Determine how null values are represented in various contexts
+#[derive(Debug, PartialEq)]
+pub enum NullScalarStyle {
+    /// Always show null values as `null`.
+    /// It is affected by the settings for `scalar_value_details`
+    Show,
+    /// Hide null values, if they are in an entry, or standalone
+    HideValue,
+    /// Hide the entire entry of a mapping, i.e. key: null
+    HideEntry,
 }
 
 /// Combines all information necessary to serialize a scalar, like keys or values
+#[derive(Debug, PartialEq)]
 pub struct ScalarDetails {
     pub style: ScalarStyle,
     /// If true, a `!!tag` will be serialized even though an implicit one would do as well.
@@ -433,6 +459,7 @@ pub struct ScalarDetails {
 /// A marker to signal that the YAML directive should be produced at the beginning of the stream.
 ///
 /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2781553)
+#[derive(Debug, PartialEq)]
 pub struct YamlVersionDirective;
 
 impl AsRef<[u8]> for YamlVersionDirective {
@@ -444,6 +471,7 @@ impl AsRef<[u8]> for YamlVersionDirective {
 /// Specifies how to separate various documents in a YAML stream.
 ///
 /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2800132)
+#[derive(Debug, PartialEq)]
 pub enum DocumentIndicatorStyle {
     /// Enforce showing a document start indicator `---`, even in single-document mode 
     /// (i.e. `dump(...)`.
@@ -460,6 +488,7 @@ pub enum DocumentIndicatorStyle {
 }
 
 /// Identifies the kind of line-break characters we want to use
+#[derive(Debug, PartialEq)]
 pub enum LineBreak {
     LineFeed,
     CarriageReturn,
@@ -500,6 +529,7 @@ pub trait Formatter {
 
 
 /// Options to define how YAML character streams will look like.
+#[derive(Debug, PartialEq)]
 pub struct PresentationDetails {
     /// Amount of spaces one indentation level will assume
     pub spaces_per_indentation_level: usize,
@@ -516,6 +546,8 @@ pub struct PresentationDetails {
     pub small_scalar_string_value_width_threshold: usize,
     /// Specifies how keys in mappings are serialized.
     pub scalar_key_details: ScalarDetails,
+    /// Specifies how non-strings scalars, like null and numbers, should be presented
+    pub scalar_value_details: ScalarDetails,
     /// Defines the details for sequences, e.g. lists and tuples
     pub sequence_details: StructureDetails,
     /// Defines the details of mappings, e.g. structures and HashMaps
@@ -529,9 +561,9 @@ pub struct PresentationDetails {
     /// If `Some(...)` is used, we will enforce a particular indicator style.
     pub document_indicator_style: Option<DocumentIndicatorStyle>,
     /// Identifies the output encoding
-    encoding: Encoding,
+    pub encoding: Encoding,
     /// Specifies the character to use for line breaks
-    line_break: LineBreak,
+    pub line_break: LineBreak,
 }
 
 impl Default for PresentationDetails {
@@ -552,6 +584,10 @@ impl Default for PresentationDetails {
                 style: ScalarStyle::Flow(0, FlowScalarStyle::Plain),
                 explicit_tag: false
             },
+            scalar_value_details: ScalarDetails {
+                style: ScalarStyle::Flow(0, FlowScalarStyle::Plain),
+                explicit_tag: false
+            },
             sequence_details: StructureDetails{
                 style: StructureStyle::Block,
                 explicit_tag: false,
@@ -562,6 +598,7 @@ impl Default for PresentationDetails {
                     explicit_tag: false,
                 },
                 explicit_block_entries: false,
+                null_style: NullScalarStyle::HideValue,
             },
             document_indicator_style: None,
             encoding: Default::default(),
@@ -605,6 +642,10 @@ impl PresentationDetails {
                 style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote),
                 explicit_tag: false
             },
+            scalar_value_details: ScalarDetails {
+                style: ScalarStyle::Flow(0, FlowScalarStyle::Plain),
+                explicit_tag: false
+            },
             sequence_details: StructureDetails{
                 style: StructureStyle::Flow,
                 explicit_tag: false,
@@ -615,6 +656,7 @@ impl PresentationDetails {
                     explicit_tag: false,
                 },
                 explicit_block_entries: false,
+                null_style: NullScalarStyle::Show,
             },
             document_indicator_style: None,
             encoding: Default::default(),
@@ -641,6 +683,10 @@ impl PresentationDetails {
                 style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote),
                 explicit_tag: true
             },
+            scalar_value_details: ScalarDetails {
+                style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote),
+                explicit_tag: true
+            },
             sequence_details: StructureDetails{
                 style: StructureStyle::Flow,
                 explicit_tag: true,
@@ -650,7 +696,8 @@ impl PresentationDetails {
                     style: StructureStyle::Flow,
                     explicit_tag: true,
                 },
-                explicit_block_entries: true
+                explicit_block_entries: true,
+                null_style: NullScalarStyle::Show,
             },
             document_indicator_style: Some(DocumentIndicatorStyle::Start(Some(YamlVersionDirective))),
             encoding: Default::default(),
