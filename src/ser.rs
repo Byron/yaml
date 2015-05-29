@@ -38,7 +38,6 @@ impl<W, F> Serializer<W, F>
 {
     /// Creates a new YAML visitor whose output will be written to the writer
     /// specified.
-
     pub fn with_formatter(writer: W, formatter: F) -> Self {
         Serializer {
             writer: writer,
@@ -52,10 +51,12 @@ impl<W, F> Serializer<W, F>
         self.writer
     }
 
+    /// Must be called once when starting to serialize any amount of documents.
     fn begin_stream(&mut self) -> io::Result<()> {
         self.writer.write_all(self.formatter.options().encoding.as_ref())
     }
 
+    /// Must be called once before starting a new document.
     fn begin_document(&mut self) -> io::Result<()> {
         let opts = self.formatter.options();
         match opts.document_indicator_style {
@@ -83,12 +84,15 @@ impl<W, F> Serializer<W, F>
         }
     }
 
+    /// The sibling of `begin_document()`, which must be called exactly once.
     fn end_document(&mut self) -> io::Result<()> {
         match self.formatter.options().document_indicator_style {
-            Some(DocumentIndicatorStyle::StartEnd(_)) 
-                => encode_ascii(&mut self.writer, &self.formatter.options().encoding, b"..."),
-            _ 
-                => Ok(())
+            Some(DocumentIndicatorStyle::StartEnd(_)) => {
+                    try!(encode_ascii(&mut self.writer, &self.formatter.options().encoding,
+                                      &self.formatter.options().line_break));
+                    encode_ascii(&mut self.writer, &self.formatter.options().encoding, b"...")
+                },
+            _ => Ok(())
         }
     }
 }
@@ -108,7 +112,7 @@ impl<W, F> ser::Serializer for Serializer<W, F>
     }
 
     fn visit_isize(&mut self, value: isize) -> io::Result<()> {
-        write!(&mut self.writer, "{}", value)
+        write!(self.writer, "{}", value)
     }
 
     fn visit_i8(&mut self, value: i8) -> io::Result<()> {
@@ -507,6 +511,16 @@ impl AsRef<[u8]> for LineBreak {
             LineBreak::LineFeed => b"\n",
             LineBreak::CarriageReturn => b"\r",
             LineBreak::CarriageReturnPlusLineFeed => b"\r\n",
+        }
+    }
+}
+
+impl AsRef<str> for LineBreak {
+    fn as_ref(&self) -> &str {
+        match *self {
+            LineBreak::LineFeed => "\n",
+            LineBreak::CarriageReturn => "\r",
+            LineBreak::CarriageReturnPlusLineFeed => "\r\n",
         }
     }
 }

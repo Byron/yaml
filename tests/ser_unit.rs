@@ -18,6 +18,7 @@ fn document_indicator_start() {
     opts.mapping_details.null_style = NullScalarStyle::HideEntry;
     assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "--- ");
 
+
     opts.document_indicator_style = Some(DocumentIndicatorStyle::StartEnd(None));
     assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "--- \n...");
 }
