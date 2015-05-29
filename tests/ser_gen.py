@@ -432,8 +432,14 @@ comments:
 - 2
 : 3
 """
-
     write_const_str_rs(sys.stdout, 'explicit_mapping_entry', s)
+
+    # UNIT TESTING
+    d = None
+    opts['explicit_start'] = True
+    opts['explicit_end'] = None
+    opts['default_flow_style'] = None
+    write_const_str_rs(sys.stdout, 'document_indicator_start', yaml.dump(d, **opts))
 
 else:
     raise AssertionError("Cannot be used as library")

@@ -12,5 +12,5 @@ fn document_indicator_start() {
     let res = yaml::to_string_with_options(&v, opts).unwrap();
     println!("HAVE:\n{:?}", res);
 
-    assert_eq!(res, "---");
+    assert_eq!(res, "--- null");
 }

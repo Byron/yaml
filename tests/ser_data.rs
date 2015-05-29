@@ -360,3 +360,8 @@ r##"?
 : 3
 "##;
 
+pub const DOCUMENT_INDICATOR_START: &'static str = 
+r##"--- null
+...
+"##;
+

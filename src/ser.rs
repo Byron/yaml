@@ -51,25 +51,32 @@ impl<W, F> Serializer<W, F>
         self.writer
     }
 
+    fn begin_stream(&mut self) -> io::Result<()> {
+        self.writer.write_all(self.formatter.options().encoding.as_ref())
+    }
+
     fn begin_document(&mut self) -> io::Result<()> {
         let opts = self.formatter.options();
         match opts.document_indicator_style {
-             Some(DocumentIndicatorStyle::Start(ref yaml_version))
-            |Some(DocumentIndicatorStyle::StartEnd(ref yaml_version)) => {
-                // Effectively writes BOM
-                try!(self.writer.write_all(opts.encoding.as_ref()));
-
+             Some(DocumentIndicatorStyle::Start(ref yaml_directive))
+            |Some(DocumentIndicatorStyle::StartEnd(ref yaml_directive)) => {
                 // We don't care about the actual type of it, as we support single-document only
                 // TODO(ST) review this once multi-document modes are possible
                 try!(
-                    match yaml_version {
-                        &Some(ref version) => encode(&mut self.writer, 
-                                                     &opts.encoding, 
-                                                     version.as_ref()),
-                        &None => Ok(())
+                    match *yaml_directive {
+                        Some(ref yaml_directive) => {
+                            try!(encode_ascii(&mut self.writer, &opts.encoding, yaml_directive));
+                            // need line-break after version directive
+                            encode_ascii(&mut self.writer, &opts.encoding, &opts.line_break)
+                        },
+                        None 
+                            => Ok(())
                     });
 
-                Ok(try!(encode(&mut self.writer, &opts.encoding, "---")))
+                // We may assume that if called, there is at least one value coming.
+                // Therefore we can put a space here by default, as values will not 
+                // take care of that
+                encode_ascii(&mut self.writer, &opts.encoding, b"--- ")
             },
             None => Ok(()),
         }
@@ -77,10 +84,10 @@ impl<W, F> Serializer<W, F>
 
     fn end_document(&mut self) -> io::Result<()> {
         match self.formatter.options().document_indicator_style {
-            Some(DocumentIndicatorStyle::StartEnd(_)) => {
-                Ok(())
-            },
-            _ => Ok(())
+            Some(DocumentIndicatorStyle::StartEnd(_)) 
+                => encode_ascii(&mut self.writer, &self.formatter.options().encoding, b"..."),
+            _ 
+                => Ok(())
         }
     }
 }
@@ -427,9 +434,9 @@ pub struct ScalarDetails {
 /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2781553)
 pub struct YamlVersionDirective;
 
-impl AsRef<str> for YamlVersionDirective {
-    fn as_ref(&self) -> &str {
-        "%YAML 1.2"
+impl AsRef<[u8]> for YamlVersionDirective {
+    fn as_ref(&self) -> &[u8] {
+        b"%YAML 1.2"
     }
 }
 
@@ -449,6 +456,29 @@ pub enum DocumentIndicatorStyle {
     ///
     /// If the start of document marker is used, the YAML version directive may be specified.
     StartEnd(Option<YamlVersionDirective>)
+}
+
+/// Identifies the kind of line-break characters we want to use
+pub enum LineBreak {
+    LineFeed,
+    CarriageReturn,
+    CarriageReturnPlusLineFeed,
+}
+
+impl Default for LineBreak {
+    fn default() -> Self {
+        LineBreak::LineFeed
+    }
+}
+
+impl AsRef<[u8]> for LineBreak {
+    fn as_ref(&self) -> &[u8] {
+        match *self {
+            LineBreak::LineFeed => b"\n",
+            LineBreak::CarriageReturn => b"\r",
+            LineBreak::CarriageReturnPlusLineFeed => b"\r\n",
+        }
+    }
 }
 
 pub trait Formatter {
@@ -497,9 +527,10 @@ pub struct PresentationDetails {
     ///
     /// If `Some(...)` is used, we will enforce a particular indicator style.
     pub document_indicator_style: Option<DocumentIndicatorStyle>,
-
     /// Identifies the output encoding
     encoding: Encoding,
+    /// Specifies the character to use for line breaks
+    line_break: LineBreak,
 }
 
 impl Default for PresentationDetails {
@@ -532,7 +563,8 @@ impl Default for PresentationDetails {
                 explicit_block_entries: false,
             },
             document_indicator_style: None,
-            encoding: Default::default()
+            encoding: Default::default(),
+            line_break: Default::default(),
         }
     }
 }
@@ -584,7 +616,8 @@ impl PresentationDetails {
                 explicit_block_entries: false,
             },
             document_indicator_style: None,
-            encoding: Default::default()
+            encoding: Default::default(),
+            line_break: Default::default(),
         }
     }
 
@@ -619,7 +652,8 @@ impl PresentationDetails {
                 explicit_block_entries: true
             },
             document_indicator_style: Some(DocumentIndicatorStyle::Start(Some(YamlVersionDirective))),
-            encoding: Default::default()
+            encoding: Default::default(),
+            line_break: Default::default(),
         }
     }
 }
@@ -788,6 +822,7 @@ pub fn to_writer_with_options<W, T>(writer: &mut W, value: &T,
           T: ser::Serialize,
 {
     let mut ser = Serializer::with_formatter(writer, StandardFormatter::with_options(options));
+    try!(ser.begin_stream());
     try!(ser.begin_document());
     try!(value.serialize(&mut ser));
     try!(ser.end_document());
@@ -845,10 +880,22 @@ fn indent<W>(wr: &mut W, n: usize) -> io::Result<()>
     Ok(())
 }
 
-fn encode<W>(writer: &mut W, encoding: &Encoding, chars: &str) -> io::Result<()> 
-    where W: io::Write
+fn encode_ascii<W, B>(writer: &mut W, encoding: &Encoding, chars: B) -> io::Result<()> 
+    where W: io::Write,
+          B: AsRef<[u8]>
 {
     match *encoding {
-        Encoding::Utf8(_) => writer.write_all(chars.as_bytes()),
+        // ASCII is a valid subset of UTF8, and can thus be written directly
+        Encoding::Utf8(_) => writer.write_all(chars.as_ref()),
+    }
+}
+
+fn encode_str<W, B>(writer: &mut W, encoding: &Encoding, chars: B) -> io::Result<()> 
+    where W: io::Write,
+          B: AsRef<str>
+{
+    match *encoding {
+        // str.as_bytes() is guaranteed to be encoded in UTF-8
+        Encoding::Utf8(_) => writer.write_all(chars.as_ref().as_bytes()),
     }
 }
