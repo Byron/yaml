@@ -1,6 +1,7 @@
 use std::io;
 use std::num::FpCategory;
 use std::string::FromUtf8Error;
+use std::borrow::Borrow;
 
 use serde::ser;
 
@@ -20,7 +21,7 @@ pub struct Serializer<W, F> {
     first: bool,
 }
 
-impl<W> Serializer<W, StandardFormatter>
+impl<W> Serializer<W, StandardFormatter<PresentationDetails>>
     where W: io::Write,
 {
     /// Creates a new YAML serializer.
@@ -664,17 +665,22 @@ impl PresentationDetails {
 /// By default it will produce human-readable YAML documents, but may be configured
 /// using the `PresentationDetails` structure to produce documents according to your 
 /// requirements.
-pub struct StandardFormatter {
+pub struct StandardFormatter<D> {
     current_indent: usize,
-    opts: PresentationDetails,
+    opts: D,
 }
 
-impl StandardFormatter {
+impl StandardFormatter<PresentationDetails>
+{
     fn new() -> Self {
         StandardFormatter::with_options(Default::default())
     }
+}
 
-    fn with_options(options: PresentationDetails) -> Self {
+impl<D> StandardFormatter<D>
+    where D: Borrow<PresentationDetails> 
+{
+    fn with_options(options: D) -> Self {
         StandardFormatter {
             current_indent: 0,
             opts: options,
@@ -682,9 +688,11 @@ impl StandardFormatter {
     }
 }
 
-impl Formatter for StandardFormatter {
+impl<D> Formatter for StandardFormatter<D>
+    where D: Borrow<PresentationDetails> 
+{
     fn options(&self) -> &PresentationDetails {
-        &self.opts
+        self.opts.borrow()
     }
 
     fn open<W>(&mut self, writer: &mut W, ch: u8) -> io::Result<()>
@@ -703,7 +711,7 @@ impl Formatter for StandardFormatter {
             try!(writer.write_all(b",\n"));
         }
 
-        indent(writer, self.current_indent * self.opts.spaces_per_indentation_level)
+        indent(writer, self.current_indent * self.opts.borrow().spaces_per_indentation_level)
     }
 
     fn colon<W>(&mut self, writer: &mut W) -> io::Result<()>
@@ -717,7 +725,7 @@ impl Formatter for StandardFormatter {
     {
         self.current_indent -= 1;
         try!(writer.write(b"\n"));
-        try!(indent(writer, self.current_indent * self.opts.spaces_per_indentation_level));
+        try!(indent(writer, self.current_indent * self.opts.borrow().spaces_per_indentation_level));
 
         writer.write_all(&[ch])
     }
@@ -811,15 +819,16 @@ pub fn to_writer<W, T>(writer: &mut W, value: &T) -> io::Result<()>
     where W: io::Write,
           T: ser::Serialize,
 {
-    to_writer_with_options(writer, value, Default::default())
+    to_writer_with_options(writer, value, PresentationDetails::default())
 }
 
 /// Encode the specified struct into a json `[u8]` writer, with the given 
 /// options to define how the character stream should look like.
-pub fn to_writer_with_options<W, T>(writer: &mut W, value: &T, 
-                                    options: PresentationDetails) -> io::Result<()>
+pub fn to_writer_with_options<W, T, D>(writer: &mut W, value: &T, 
+                                    options: D) -> io::Result<()>
     where W: io::Write,
           T: ser::Serialize,
+          D: Borrow<PresentationDetails>
 {
     let mut ser = Serializer::with_formatter(writer, StandardFormatter::with_options(options));
     try!(ser.begin_stream());
@@ -843,8 +852,9 @@ pub fn to_vec<T>(value: &T) -> Vec<u8>
 
 /// Encode the specified struct into a YAML `[u8]` buffer with the given options
 /// to define how the character stream should look like.
-pub fn to_vec_with_options<T>(value: &T, options: PresentationDetails) -> Vec<u8>
+pub fn to_vec_with_options<T, D>(value: &T, options: D) -> Vec<u8>
     where T: ser::Serialize,
+          D: Borrow<PresentationDetails>
 {
     let mut writer = Vec::with_capacity(128);
     to_writer_with_options(&mut writer, value, options).unwrap();
@@ -862,9 +872,10 @@ pub fn to_string<T>(value: &T) -> Result<String, FromUtf8Error>
 
 /// Encode the specified struct into a YAML `String` buffer with the given 
 /// options to define how the character stream should look like.
-pub fn to_string_with_options<T>(value: &T, 
-                                 options: PresentationDetails) -> Result<String, FromUtf8Error>
-    where T: ser::Serialize
+pub fn to_string_with_options<T, D>(value: &T, 
+                                    options: D) -> Result<String, FromUtf8Error>
+    where T: ser::Serialize,
+          D: Borrow<PresentationDetails>
 {
     let vec = to_vec_with_options(value, options);
     String::from_utf8(vec)
