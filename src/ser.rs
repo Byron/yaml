@@ -7,7 +7,8 @@ use serde::ser;
 /// The only allowed indentation character
 const INDENT: &'static [u8] = b" ";
 
-/// A receiver for serialization events which are translated into a stream of characters.
+/// A receiver for serialization events which are translated into a stream of characters, 
+/// destined to serialize value types.
 ///
 /// The particular format is handled using a `Formatter` implementation.
 pub struct Serializer<W, F> {
@@ -46,9 +47,41 @@ impl<W, F> Serializer<W, F>
     }
 
     /// Unwrap the `Writer` from the `Serializer`.
-
     pub fn into_inner(self) -> W {
         self.writer
+    }
+
+    fn begin_document(&mut self) -> io::Result<()> {
+        let opts = self.formatter.options();
+        match opts.document_indicator_style {
+             Some(DocumentIndicatorStyle::Start(ref yaml_version))
+            |Some(DocumentIndicatorStyle::StartEnd(ref yaml_version)) => {
+                // Effectively writes BOM
+                try!(self.writer.write_all(opts.encoding.as_ref()));
+
+                // We don't care about the actual type of it, as we support single-document only
+                // TODO(ST) review this once multi-document modes are possible
+                try!(
+                    match yaml_version {
+                        &Some(ref version) => encode(&mut self.writer, 
+                                                     &opts.encoding, 
+                                                     version.as_ref()),
+                        &None => Ok(())
+                    });
+
+                Ok(try!(encode(&mut self.writer, &opts.encoding, "---")))
+            },
+            None => Ok(()),
+        }
+    }
+
+    fn end_document(&mut self) -> io::Result<()> {
+        match self.formatter.options().document_indicator_style {
+            Some(DocumentIndicatorStyle::StartEnd(_)) => {
+                Ok(())
+            },
+            _ => Ok(())
+        }
     }
 }
 
@@ -337,6 +370,18 @@ pub enum Encoding {
     Utf8(Option<ByteOrderMark>),
 }
 
+impl AsRef<[u8]> for Encoding {
+    /// Convert ourselves to the ByteOrderMark, or b"" if there is no BOM
+    fn as_ref(&self) -> &[u8] {
+        match *self {
+            Encoding::Utf8(Some(ref bom)) 
+                => b"\xEF\xBB\xBF",
+            Encoding::Utf8(None)
+                => b"",
+        }
+    }
+}
+
 /// A marker to identify whether or not a byte order mark should be used
 pub enum ByteOrderMark {
     /// We emit the BOM exactly once, even in a multi-document stream
@@ -382,6 +427,12 @@ pub struct ScalarDetails {
 /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2781553)
 pub struct YamlVersionDirective;
 
+impl AsRef<str> for YamlVersionDirective {
+    fn as_ref(&self) -> &str {
+        "%YAML 1.2"
+    }
+}
+
 /// Specifies how to separate various documents in a YAML stream.
 ///
 /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2800132)
@@ -412,6 +463,8 @@ pub trait Formatter {
 
     fn close<W>(&mut self, writer: &mut W, ch: u8) -> io::Result<()>
         where W: io::Write;
+
+    fn options(&self) -> &PresentationDetails;
 }
 
 
@@ -571,8 +624,8 @@ impl PresentationDetails {
     }
 }
 
-/// Generates a stream of characters from serialization events produces by values 
-/// implementing the `Serialize` trait.
+/// Controls how all non-scalars are serialized, which includes indicators and whitespace
+/// for example.
 ///
 /// By default it will produce human-readable YAML documents, but may be configured
 /// using the `PresentationDetails` structure to produce documents according to your 
@@ -596,6 +649,10 @@ impl StandardFormatter {
 }
 
 impl Formatter for StandardFormatter {
+    fn options(&self) -> &PresentationDetails {
+        &self.opts
+    }
+
     fn open<W>(&mut self, writer: &mut W, ch: u8) -> io::Result<()>
         where W: io::Write,
     {
@@ -720,9 +777,7 @@ pub fn to_writer<W, T>(writer: &mut W, value: &T) -> io::Result<()>
     where W: io::Write,
           T: ser::Serialize,
 {
-    let mut ser = Serializer::new(writer);
-    try!(value.serialize(&mut ser));
-    Ok(())
+    to_writer_with_options(writer, value, Default::default())
 }
 
 /// Encode the specified struct into a json `[u8]` writer, with the given 
@@ -733,7 +788,9 @@ pub fn to_writer_with_options<W, T>(writer: &mut W, value: &T,
           T: ser::Serialize,
 {
     let mut ser = Serializer::with_formatter(writer, StandardFormatter::with_options(options));
+    try!(ser.begin_document());
     try!(value.serialize(&mut ser));
+    try!(ser.end_document());
     Ok(())
 }
 
@@ -786,4 +843,12 @@ fn indent<W>(wr: &mut W, n: usize) -> io::Result<()>
     }
 
     Ok(())
+}
+
+fn encode<W>(writer: &mut W, encoding: &Encoding, chars: &str) -> io::Result<()> 
+    where W: io::Write
+{
+    match *encoding {
+        Encoding::Utf8(_) => writer.write_all(chars.as_bytes()),
+    }
 }
