@@ -327,6 +327,61 @@ pub enum ScalarStyle {
     Flow(usize, FlowScalarStyle)
 }
 
+
+/// Identifies the character encoding to use.
+///
+/// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2771184)
+pub enum Encoding {
+    /// See the [WIKI entry](http://en.wikipedia.org/wiki/UTF-8) for details
+    /// We will write a BOM at the beginning of 
+    Utf8(Option<ByteOrderMark>),
+}
+
+/// A marker to identify whether or not a byte order mark should be used
+pub enum ByteOrderMark {
+    /// We emit the BOM exactly once, even in a multi-document stream
+    PerStream,
+    /// We emit the BOM once per document
+    PerDocument,
+}
+
+impl Default for Encoding {
+    fn default() -> Self {
+        Encoding::Utf8(None)
+    }
+}
+
+/// Combines all information necessary to serialize a structure, like mappings 
+/// and sequences.
+pub struct StructureDetails {
+    pub style: StructureStyle,
+    /// If true, a `!!tag` will be serialized even though an implicit one would do as well.
+    pub explicit_tag: bool,
+}
+
+/// Contains all information to describe how to serialize mappings in YAML.
+pub struct MappingDetails {
+    details: StructureDetails,
+    /// If true, use an explicit form to describe keys and values in a mapping, for all 
+    /// keys and values.
+    /// If false, it will only be used if the mapping key is a non-scalar one.
+    /// 
+    /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2798425)
+    explicit_block_entries: bool
+}
+
+/// Combines all information necessary to serialize a scalar, like keys or values
+pub struct ScalarDetails {
+    pub style: ScalarStyle,
+    /// If true, a `!!tag` will be serialized even though an implicit one would do as well.
+    pub explicit_tag: bool,
+}
+
+/// A marker to signal that the YAML directive should be produced at the beginning of the stream.
+///
+/// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2781553)
+pub struct YamlVersionDirective;
+
 /// Specifies how to separate various documents in a YAML stream.
 ///
 /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2800132)
@@ -335,10 +390,14 @@ pub enum DocumentIndicatorStyle {
     /// (i.e. `dump(...)`.
     /// In multi-document mode, i.e. `dump_all(...)`, the start indicator is automatically 
     /// used as it is a requirement.
-    Start,
+    ///
+    /// If the start of document marker is used, the YAML version directive may be specified.
+    Start(Option<YamlVersionDirective>),
     /// Enforce showing the start `---` and end `...` of document indicator for each 
     /// dumped document. The behavior is similar in both `dump(...)` and `dump_all(...)` modes.
-    StartEnd
+    ///
+    /// If the start of document marker is used, the YAML version directive may be specified.
+    StartEnd(Option<YamlVersionDirective>)
 }
 
 pub trait Formatter {
@@ -362,21 +421,21 @@ pub struct PresentationDetails {
     pub spaces_per_indentation_level: usize,
     /// Defines the style for scalar values, like strings, e.g. `key: string_value`
     /// that serialize to a string shorter than the `small_scalar_string_value_width_threshold`
-    pub small_scalar_string_value_style: ScalarStyle,
+    pub small_scalar_string_value_details: ScalarDetails,
     /// Defines the style for scalar values, like strings, that are not considered
     /// small as their string width is larger than the 
     /// given `small_scalar_string_value_width_threshold`.
-    pub big_scalar_string_value_style: ScalarStyle,
+    pub big_scalar_string_value_details: ScalarDetails,
     /// If the serialized string of a scalar value is smaller than this one, they
-    /// `small_scalar_string_value_style` is applied, otherwise it will 
-    /// be the `big_scalar_string_value_style`
+    /// `small_scalar_string_value_details` is applied, otherwise it will 
+    /// be the `big_scalar_string_value_details`
     pub small_scalar_string_value_width_threshold: usize,
-    /// Specifies how keys in mappings are styled.
-    pub scalar_key_style: ScalarStyle,
-    /// Defines the style for sequences, e.g. lists and tuples
-    pub sequence_style: StructureStyle,
-    /// Defines the style of mappings, e.g. structures and HashMaps
-    pub mapping_style: StructureStyle,
+    /// Specifies how keys in mappings are serialized.
+    pub scalar_key_details: ScalarDetails,
+    /// Defines the details for sequences, e.g. lists and tuples
+    pub sequence_details: StructureDetails,
+    /// Defines the details of mappings, e.g. structures and HashMaps
+    pub mapping_details: MappingDetails,
     /// Specify how documents should be marked.
     ///
     /// If `None`, we will not show any document indicators in single-document mode,
@@ -385,6 +444,9 @@ pub struct PresentationDetails {
     ///
     /// If `Some(...)` is used, we will enforce a particular indicator style.
     pub document_indicator_style: Option<DocumentIndicatorStyle>,
+
+    /// Identifies the output encoding
+    encoding: Encoding,
 }
 
 impl Default for PresentationDetails {
@@ -392,13 +454,32 @@ impl Default for PresentationDetails {
     fn default() -> Self {
         PresentationDetails {
             spaces_per_indentation_level: 2,
-            small_scalar_string_value_style: ScalarStyle::Flow(0, FlowScalarStyle::Plain),
-            big_scalar_string_value_style: ScalarStyle::Block(BlockScalarStyle::Literal),
+            small_scalar_string_value_details: ScalarDetails {
+                style: ScalarStyle::Flow(0, FlowScalarStyle::Plain),
+                explicit_tag: false
+            },
+            big_scalar_string_value_details: ScalarDetails {
+                style: ScalarStyle::Block(BlockScalarStyle::Literal),
+                explicit_tag: false
+            },
             small_scalar_string_value_width_threshold: 20,
-            scalar_key_style: ScalarStyle::Flow(0, FlowScalarStyle::Plain),
-            sequence_style: StructureStyle::Block,
-            mapping_style: StructureStyle::Block,
+            scalar_key_details: ScalarDetails {
+                style: ScalarStyle::Flow(0, FlowScalarStyle::Plain),
+                explicit_tag: false
+            },
+            sequence_details: StructureDetails{
+                style: StructureStyle::Block,
+                explicit_tag: false,
+            },
+            mapping_details: MappingDetails {
+                details: StructureDetails{
+                    style: StructureStyle::Block,
+                    explicit_tag: false,
+                },
+                explicit_block_entries: false,
+            },
             document_indicator_style: None,
+            encoding: Default::default()
         }
     }
 }
@@ -425,13 +506,67 @@ impl PresentationDetails {
     pub fn json() -> PresentationDetails {
         PresentationDetails {
             spaces_per_indentation_level: 2,
-            small_scalar_string_value_style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote),
-            big_scalar_string_value_style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote),
+            small_scalar_string_value_details: ScalarDetails {
+                style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote),
+                explicit_tag: false
+            },
+            big_scalar_string_value_details: ScalarDetails {
+                style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote),
+                explicit_tag: false
+            },
             small_scalar_string_value_width_threshold: 20,         // doesn't matter
-            scalar_key_style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote),
-            sequence_style: StructureStyle::Flow,
-            mapping_style: StructureStyle::Flow,
+            scalar_key_details: ScalarDetails {
+                style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote),
+                explicit_tag: false
+            },
+            sequence_details: StructureDetails{
+                style: StructureStyle::Flow,
+                explicit_tag: false,
+            },
+            mapping_details: MappingDetails {
+                details: StructureDetails{
+                    style: StructureStyle::Flow,
+                    explicit_tag: false,
+                },
+                explicit_block_entries: false,
+            },
             document_indicator_style: None,
+            encoding: Default::default()
+        }
+    }
+
+
+    /// Produces details that style a YAML document into a canonical form, that is a form
+    /// which makes all types explicit, easing comparison
+    pub fn canonical() -> PresentationDetails {
+        PresentationDetails {
+            spaces_per_indentation_level: 2,
+            small_scalar_string_value_details: ScalarDetails {
+                style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote),
+                explicit_tag: true
+            },
+            big_scalar_string_value_details: ScalarDetails {
+                style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote),
+                explicit_tag: true
+            },
+            small_scalar_string_value_width_threshold: 20,
+            scalar_key_details: ScalarDetails {
+                style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote),
+                explicit_tag: true
+            },
+            sequence_details: StructureDetails{
+                style: StructureStyle::Flow,
+                explicit_tag: true,
+            },
+            mapping_details: MappingDetails { 
+                details: StructureDetails {
+                    style: StructureStyle::Flow,
+                    explicit_tag: true,
+                },
+                explicit_block_entries: true
+            },
+            document_indicator_style: Some(DocumentIndicatorStyle::Start(Some(YamlVersionDirective))),
+            encoding: Default::default()
         }
     }
 }

@@ -25,6 +25,7 @@ if __name__ == '__main__':
     ))
     write_const_str_rs(sys.stdout, 'data1_default', yaml.dump(data1))
     write_const_str_rs(sys.stdout, 'data1_default_json', json.dumps(data1, indent=2))
+    write_const_str_rs(sys.stdout, 'data1_default_canonical', yaml.dump(data1, canonical=True, version=(1,2)))
 
     opts_pretty = dict(default_flow_style=False)
 
@@ -422,6 +423,17 @@ comments:
 
     # Example 2.28. Log File
     write_const_str_rs(sys.stdout, 'example_2_28', yaml.dump_all(d, **opts))
+
+
+    # unfortunately, this will put the python/tuple type into the YAML
+    d = { (1,2): 3 }
+    s = """?
+- 1
+- 2
+: 3
+"""
+
+    write_const_str_rs(sys.stdout, 'explicit_mapping_entry', s)
 
 else:
     raise AssertionError("Cannot be used as library")

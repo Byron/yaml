@@ -2,6 +2,8 @@
 extern crate serde;
 extern crate serde_yaml as yaml;
 
+use std::collections::HashMap;
+
 use yaml::ser::PresentationDetails;
 
 mod structs;
@@ -22,6 +24,13 @@ fn ser_json() {
     let d = structs::Data1::default();
     assert_eq!(yaml::to_string_with_options(&d, PresentationDetails::json()).unwrap(), 
                                                 ser_data::DATA1_DEFAULT_JSON);
+}
+
+#[test]
+fn ser_canonical() {
+    let d = structs::Data1::default();
+    assert_eq!(yaml::to_string_with_options(&d, PresentationDetails::canonical()).unwrap(), 
+                                                ser_data::DATA1_DEFAULT_CANONICAL);
 }
 
 #[test]
@@ -227,4 +236,13 @@ fn example_2_28() {
     let d = structs::example_2_28_new();
 
     assert_eq!(yaml::to_string(&d).unwrap(), ser_data::EXAMPLE_2_28);
+}
+
+#[test]
+fn explicit_block_entries() {
+    // required due to complex key
+    let mut d = HashMap::new();
+    d.insert((1u32, 2u32), 3u32);
+
+    assert_eq!(yaml::to_string(&d).unwrap(), ser_data::EXPLICIT_MAPPING_ENTRY);
 }

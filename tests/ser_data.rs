@@ -23,6 +23,31 @@ r##"{
   "hash": {}
 }"##;
 
+pub const DATA1_DEFAULT_CANONICAL: &'static str = 
+r##"%YAML 1.2
+---
+!!map {
+  ? !!str "i32"
+  : !!int "0",
+  ? !!str "i64"
+  : !!int "0",
+  ? !!str "u32"
+  : !!int "0",
+  ? !!str "u64"
+  : !!int "0",
+  ? !!str "f32"
+  : !!float "0.0",
+  ? !!str "f64"
+  : !!float "0.0",
+  ? !!str "string"
+  : !!str "",
+  ? !!str "i32a"
+  : !!seq [],
+  ? !!str "hash"
+  : !!map {},
+}
+"##;
+
 pub const LIST1_DEFAULT: &'static str = 
 r##"- string
 - 5
@@ -326,5 +351,12 @@ Stack:
 - file: MoreClass.py
   line: 58
   code: foo = bar
+"##;
+
+pub const EXPLICIT_MAPPING_ENTRY: &'static str = 
+r##"?
+- 1
+- 2
+: 3
 "##;
 
