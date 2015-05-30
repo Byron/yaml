@@ -12,36 +12,40 @@ const INDENT: &'static [u8] = b" ";
 /// destined to serialize value types.
 ///
 /// The particular format is handled using a `Formatter` implementation.
-pub struct Serializer<W, F> {
+pub struct Serializer<W, D = Borrow<PresentationDetails>> 
+    where D: Borrow<PresentationDetails>
+{
     writer: W,
-    formatter: F,
+    formatter: StandardFormatter,
+    opts: D,
 
     /// `first` is used to signify if we should print a comma when we are walking through a
     /// sequence.
     first: bool,
 }
 
-impl<W> Serializer<W, StandardFormatter<PresentationDetails>>
+impl<W> Serializer<W, PresentationDetails>
     where W: io::Write,
 {
     /// Creates a new YAML serializer.
 
     pub fn new(writer: W) -> Self {
-        Serializer::with_formatter(writer, StandardFormatter::new())
+        Serializer::with_options(writer, PresentationDetails::default())
     }
 }
 
 
-impl<W, F> Serializer<W, F>
+impl<W, D> Serializer<W, D>
     where W: io::Write,
-          F: Formatter,
+          D: Borrow<PresentationDetails>
 {
     /// Creates a new YAML visitor whose output will be written to the writer
     /// specified.
-    pub fn with_formatter(writer: W, formatter: F) -> Self {
+    pub fn with_options(writer: W, options: D) -> Self {
         Serializer {
             writer: writer,
-            formatter: formatter,
+            formatter: StandardFormatter::with_options(options.borrow().format.clone()),
+            opts: options,
             first: false,
         }
     }
@@ -53,13 +57,12 @@ impl<W, F> Serializer<W, F>
 
     /// Must be called once when starting to serialize any amount of documents.
     fn begin_stream(&mut self) -> io::Result<()> {
-        self.writer.write_all(self.formatter.options().encoding.as_ref())
+        self.writer.write_all(self.opts.borrow().format.encoding.as_ref())
     }
 
     /// Must be called once before starting a new document.
     fn begin_document(&mut self) -> io::Result<()> {
-        let opts = self.formatter.options();
-        match opts.document_indicator_style {
+        match self.opts.borrow().document_indicator_style {
              Some(DocumentIndicatorStyle::Start(ref yaml_directive))
             |Some(DocumentIndicatorStyle::StartEnd(ref yaml_directive)) => {
                 // We don't care about the actual type of it, as we support single-document only
@@ -67,9 +70,12 @@ impl<W, F> Serializer<W, F>
                 try!(
                     match *yaml_directive {
                         Some(ref yaml_directive) => {
-                            try!(encode_ascii(&mut self.writer, &opts.encoding, yaml_directive));
+                            try!(encode_ascii(&mut self.writer, 
+                                              &self.opts.borrow().format.encoding,
+                                              yaml_directive));
                             // need line-break after version directive
-                            encode_ascii(&mut self.writer, &opts.encoding, &opts.line_break)
+                            encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, 
+                                         &self.opts.borrow().format.line_break)
                         },
                         None 
                             => Ok(())
@@ -78,7 +84,7 @@ impl<W, F> Serializer<W, F>
                 // We may assume that if called, there is at least one value coming.
                 // Therefore we can put a space here by default, as values will not 
                 // take care of that
-                encode_ascii(&mut self.writer, &opts.encoding, b"--- ")
+                encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, b"--- ")
             },
             None => Ok(()),
         }
@@ -86,20 +92,20 @@ impl<W, F> Serializer<W, F>
 
     /// The sibling of `begin_document()`, which must be called exactly once.
     fn end_document(&mut self) -> io::Result<()> {
-        match self.formatter.options().document_indicator_style {
+        match self.opts.borrow().document_indicator_style {
             Some(DocumentIndicatorStyle::StartEnd(_)) => {
-                    try!(encode_ascii(&mut self.writer, &self.formatter.options().encoding,
-                                      &self.formatter.options().line_break));
-                    encode_ascii(&mut self.writer, &self.formatter.options().encoding, b"...")
+                    try!(encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding,
+                                      &self.opts.borrow().format.line_break));
+                    encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, b"...")
                 },
             _ => Ok(())
         }
     }
 }
 
-impl<W, F> ser::Serializer for Serializer<W, F>
+impl<W, D> ser::Serializer for Serializer<W, D>
     where W: io::Write,
-          F: Formatter,
+          D: Borrow<PresentationDetails>
 {
     type Error = io::Error;
 
@@ -178,12 +184,14 @@ impl<W, F> ser::Serializer for Serializer<W, F>
     }
 
     fn visit_unit(&mut self) -> io::Result<()> {
-        match self.formatter.options().mapping_details.null_style {
+        match self.opts.borrow().mapping_details.null_style {
             NullScalarStyle::HideValue
             |NullScalarStyle::HideEntry 
                 => Ok(()),
             NullScalarStyle::Show
-                => encode_ascii(&mut self.writer, &self.formatter.options().encoding, b"null"),
+                => encode_scalar(&mut self.formatter, &mut self.writer, Tag::Null, 
+                                 &self.opts.borrow().format.encoding, 
+                                 &self.opts.borrow().scalar_value_details, "null"),
         }
     }
 
@@ -347,6 +355,16 @@ pub enum FlowScalarStyle {
 
 }
 
+impl AsRef<str> for FlowScalarStyle {
+    fn as_ref(&self) -> &str {
+        match *self {
+            FlowScalarStyle::Plain => "",
+            FlowScalarStyle::SingleQuote => "'",
+            FlowScalarStyle::DoubleQuote => "\""
+        }
+    }
+}
+
 /// There are two groups of styles. Block styles use indentation to denote structure; In contrast,
 /// flow styles styles rely on explicit indicators.
 ///
@@ -387,7 +405,7 @@ pub enum ScalarStyle {
 /// Identifies the character encoding to use.
 ///
 /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2771184)
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Encoding {
     /// See the [WIKI entry](http://en.wikipedia.org/wiki/UTF-8) for details
     /// We will write a BOM at the beginning of 
@@ -406,8 +424,29 @@ impl AsRef<[u8]> for Encoding {
     }
 }
 
+/// A tag is meta-data to provide information about a value.
+///
+/// Built-in tags are specified using the `!!<tag>` notation within a YAML stream,
+/// and are mapped to standard Rust datatypes by the implementation. In theory,
+/// the application can define custom tags to help dealing with any data type.
+///
+/// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2764295)
+pub enum Tag {
+    Null,
+    Str,
+}
+
+impl AsRef<[u8]> for Tag {
+    fn as_ref(&self) -> &[u8] {
+        match *self {
+            Tag::Null => b"!!null",
+            Tag::Str  => b"!!str",
+        }
+    }
+}
+
 /// A marker to identify whether or not a byte order mark should be used
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct ByteOrderMark;
 
 impl Default for Encoding {
@@ -492,7 +531,7 @@ pub enum DocumentIndicatorStyle {
 }
 
 /// Identifies the kind of line-break characters we want to use
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum LineBreak {
     LineFeed,
     CarriageReturn,
@@ -525,28 +564,31 @@ impl AsRef<str> for LineBreak {
     }
 }
 
-pub trait Formatter {
-    fn open<W>(&mut self, writer: &mut W, ch: u8) -> io::Result<()>
-        where W: io::Write;
+/// Options defining how whitespace is handled within the YAML stream
+#[derive(Debug, PartialEq, Clone)]
+pub struct FormatterOptions {
+    /// Amount of spaces one indentation level will assume
+    pub spaces_per_indentation_level: usize,
+    /// Identifies the output encoding
+    pub encoding: Encoding,
+    /// Specifies the character to use for line breaks
+    pub line_break: LineBreak,
+}
 
-    fn comma<W>(&mut self, writer: &mut W, first: bool) -> io::Result<()>
-        where W: io::Write;
-
-    fn colon<W>(&mut self, writer: &mut W) -> io::Result<()>
-        where W: io::Write;
-
-    fn close<W>(&mut self, writer: &mut W, ch: u8) -> io::Result<()>
-        where W: io::Write;
-
-    fn options(&self) -> &PresentationDetails;
+impl Default for FormatterOptions {
+    fn default() -> Self {
+        FormatterOptions {
+            spaces_per_indentation_level: 2,
+            encoding: Default::default(),
+            line_break: Default::default(),
+        }
+    }
 }
 
 
 /// Options to define how YAML character streams will look like.
 #[derive(Debug, PartialEq)]
 pub struct PresentationDetails {
-    /// Amount of spaces one indentation level will assume
-    pub spaces_per_indentation_level: usize,
     /// Defines the style for scalar values, like strings, e.g. `key: string_value`
     /// that serialize to a string shorter than the `small_scalar_string_value_width_threshold`
     pub small_scalar_string_value_details: ScalarDetails,
@@ -574,17 +616,14 @@ pub struct PresentationDetails {
     ///
     /// If `Some(...)` is used, we will enforce a particular indicator style.
     pub document_indicator_style: Option<DocumentIndicatorStyle>,
-    /// Identifies the output encoding
-    pub encoding: Encoding,
-    /// Specifies the character to use for line breaks
-    pub line_break: LineBreak,
+    /// Specify how to output characters and how to deal with line-breaks
+    pub format: FormatterOptions,
 }
 
 impl Default for PresentationDetails {
     /// Standard YAML style, as human-readable as possible
     fn default() -> Self {
         PresentationDetails {
-            spaces_per_indentation_level: 2,
             small_scalar_string_value_details: ScalarDetails {
                 style: ScalarStyle::Flow(0, FlowScalarStyle::Plain),
                 explicit_tag: false
@@ -615,8 +654,7 @@ impl Default for PresentationDetails {
                 null_style: NullScalarStyle::HideValue,
             },
             document_indicator_style: None,
-            encoding: Default::default(),
-            line_break: Default::default(),
+            format: Default::default()
         }
     }
 }
@@ -642,7 +680,6 @@ impl PresentationDetails {
     ///     in a single document.
     pub fn json() -> PresentationDetails {
         PresentationDetails {
-            spaces_per_indentation_level: 2,
             small_scalar_string_value_details: ScalarDetails {
                 style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote),
                 explicit_tag: false
@@ -673,8 +710,7 @@ impl PresentationDetails {
                 null_style: NullScalarStyle::Show,
             },
             document_indicator_style: None,
-            encoding: Default::default(),
-            line_break: Default::default(),
+            format: Default::default()
         }
     }
 
@@ -683,7 +719,6 @@ impl PresentationDetails {
     /// which makes all types explicit, easing comparison
     pub fn canonical() -> PresentationDetails {
         PresentationDetails {
-            spaces_per_indentation_level: 2,
             small_scalar_string_value_details: ScalarDetails {
                 style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote),
                 explicit_tag: true
@@ -714,8 +749,11 @@ impl PresentationDetails {
                 null_style: NullScalarStyle::Show,
             },
             document_indicator_style: Some(DocumentIndicatorStyle::Start(Some(YamlVersionDirective))),
-            encoding: Default::default(),
-            line_break: Default::default(),
+            format: FormatterOptions {
+                spaces_per_indentation_level: 2,
+                encoding: Default::default(),
+                line_break: Default::default(),
+            }
         }
     }
 }
@@ -726,34 +764,18 @@ impl PresentationDetails {
 /// By default it will produce human-readable YAML documents, but may be configured
 /// using the `PresentationDetails` structure to produce documents according to your 
 /// requirements.
-pub struct StandardFormatter<D> {
+struct StandardFormatter {
     current_indent: usize,
-    opts: D,
+    opts: FormatterOptions,
 }
 
-impl StandardFormatter<PresentationDetails>
+impl StandardFormatter
 {
-    fn new() -> Self {
-        StandardFormatter::with_options(Default::default())
-    }
-}
-
-impl<D> StandardFormatter<D>
-    where D: Borrow<PresentationDetails> 
-{
-    fn with_options(options: D) -> Self {
+    fn with_options(options: FormatterOptions) -> Self {
         StandardFormatter {
             current_indent: 0,
             opts: options,
         }
-    }
-}
-
-impl<D> Formatter for StandardFormatter<D>
-    where D: Borrow<PresentationDetails> 
-{
-    fn options(&self) -> &PresentationDetails {
-        self.opts.borrow()
     }
 
     fn open<W>(&mut self, writer: &mut W, ch: u8) -> io::Result<()>
@@ -772,7 +794,7 @@ impl<D> Formatter for StandardFormatter<D>
             try!(writer.write_all(b",\n"));
         }
 
-        indent(writer, self.current_indent * self.opts.borrow().spaces_per_indentation_level)
+        indent(writer, self.current_indent * self.opts.spaces_per_indentation_level)
     }
 
     fn colon<W>(&mut self, writer: &mut W) -> io::Result<()>
@@ -786,7 +808,7 @@ impl<D> Formatter for StandardFormatter<D>
     {
         self.current_indent -= 1;
         try!(writer.write(b"\n"));
-        try!(indent(writer, self.current_indent * self.opts.borrow().spaces_per_indentation_level));
+        try!(indent(writer, self.current_indent * self.opts.spaces_per_indentation_level));
 
         writer.write_all(&[ch])
     }
@@ -891,7 +913,7 @@ pub fn to_writer_with_options<W, T, D>(writer: &mut W, value: &T,
           T: ser::Serialize,
           D: Borrow<PresentationDetails>
 {
-    let mut ser = Serializer::with_formatter(writer, StandardFormatter::with_options(options));
+    let mut ser = Serializer::with_options(writer, options);
     try!(ser.begin_stream());
     try!(ser.begin_document());
     try!(value.serialize(&mut ser));
@@ -969,5 +991,34 @@ fn encode_str<W, B>(writer: &mut W, encoding: &Encoding, chars: B) -> io::Result
     match *encoding {
         // str.as_bytes() is guaranteed to be encoded in UTF-8
         Encoding::Utf8(_) => writer.write_all(chars.as_ref().as_bytes()),
+    }
+}
+
+fn encode_scalar<W, B>(formatter: &mut StandardFormatter, writer: &mut W, tag: Tag, 
+                       encoding: &Encoding, opts: &ScalarDetails, chars: B) -> io::Result<()>
+    where W: io::Write,
+          B: AsRef<str>,
+{
+    if opts.explicit_tag {
+        try!(encode_ascii(writer, encoding, b" "));
+        try!(encode_ascii(writer, encoding, tag.as_ref()));
+    }
+
+    match opts.style {
+        ScalarStyle::Block(_) => panic!("TODO"),
+        ScalarStyle::Flow(ref width, ref flow_style) => {
+            if let Tag::Str = tag {
+
+            } else { 
+
+            }
+
+            if *width == 0 {
+
+            } else {
+                panic!("TODO")
+            }
+            Ok(()) // DEBUG
+        },
     }
 }
