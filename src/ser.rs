@@ -115,7 +115,7 @@ impl<W, D> Serializer<W, D>
                 // We may assume that if called, there is at least one value coming.
                 // Therefore we can put a space here by default, as values will not 
                 // take care of that
-                encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, b"--- ")
+                encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, b"---")
             },
             None => Ok(()),
         }
@@ -133,11 +133,28 @@ impl<W, D> Serializer<W, D>
         }
     }
 
-    fn encode_scalar<B>(&mut self, tag: Tag, opts: ScalarDetails, chars: B) -> io::Result<()>
+    fn encode_scalar<B>(&mut self, tag: Tag, mut opts: ScalarDetails, chars: B) -> io::Result<()>
         where B: AsRef<str>
     {
+        let encoding = &self.opts.borrow().format.encoding;
+        // If we have non-strings which are supposed to be printed in non-plain mode, 
+        // the tag is a requirement, no matter what. Otherwise these values would be interpreted
+        // as strings (thus we need the tag to maintain the original type)
+        let have_string = 
+            if let Tag::Str = tag {
+                true
+            } else {
+                if let ScalarStyle::Flow(ref width, ref flow_style) = opts.style {
+                    opts.explicit_tag = 
+                        match *flow_style {
+                            FlowScalarStyle::Plain => opts.explicit_tag,
+                            _ => true
+                        };
+                }
+                false
+            };
+
         if opts.explicit_tag {
-            let encoding = &self.opts.borrow().format.encoding;
             try!(encode_ascii(&mut self.writer, encoding, b" "));
             try!(encode_ascii(&mut self.writer, encoding, tag.as_ref()));
         }
@@ -145,18 +162,26 @@ impl<W, D> Serializer<W, D>
         match opts.style {
             ScalarStyle::Block(_) => panic!("TODO"),
             ScalarStyle::Flow(ref width, ref flow_style) => {
-                if let Tag::Str = tag {
+                let (flow_style, str_slice) = 
+                    if have_string {
+                        let str_slice = 
+                            if *width == 0 {
+                                chars.as_ref()
+                            } else {
+                                panic!("TODO: Folding within a flow string")
+                            };
+                        panic!("TODO: escape handling! if there is something to escape, we must use \"")
+                    } else {
+                        // Any other scalars neither need folding, nor do they need escaping
+                        (flow_style, chars.as_ref())
+                    };
 
-                } else { 
 
-                }
-
-                if *width == 0 {
-
-                } else {
-                    panic!("TODO")
-                }
-                Ok(()) // DEBUG
+                // TODO(ST): deal with indentation/line breaks
+                try!(encode_ascii(&mut self.writer, encoding, b" "));
+                try!(encode_ascii(&mut self.writer, encoding, flow_style));
+                try!(encode_str(&mut self.writer, encoding, str_slice));
+                encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, flow_style)
             },
         }
     }
@@ -414,12 +439,12 @@ pub enum FlowScalarStyle {
 
 }
 
-impl AsRef<str> for FlowScalarStyle {
-    fn as_ref(&self) -> &str {
+impl AsRef<[u8]> for FlowScalarStyle {
+    fn as_ref(&self) -> &[u8] {
         match *self {
-            FlowScalarStyle::Plain => "",
-            FlowScalarStyle::SingleQuote => "'",
-            FlowScalarStyle::DoubleQuote => "\""
+            FlowScalarStyle::Plain => b"",
+            FlowScalarStyle::SingleQuote => b"'",
+            FlowScalarStyle::DoubleQuote => b"\""
         }
     }
 }
@@ -981,6 +1006,10 @@ fn encode_ascii<W, B>(writer: &mut W, encoding: &Encoding, chars: B) -> io::Resu
     where W: io::Write,
           B: AsRef<[u8]>
 {
+    if chars.as_ref().len() == 0 {
+        return Ok(())
+    }
+    
     match *encoding {
         // ASCII is a valid subset of UTF8, and can thus be written directly
         Encoding::Utf8(_) => writer.write_all(chars.as_ref()),
@@ -991,6 +1020,10 @@ fn encode_str<W, B>(writer: &mut W, encoding: &Encoding, chars: B) -> io::Result
     where W: io::Write,
           B: AsRef<str>
 {
+    if chars.as_ref().len() == 0 {
+        return Ok(())
+    }
+
     match *encoding {
         // str.as_bytes() is guaranteed to be encoded in UTF-8
         Encoding::Utf8(_) => writer.write_all(chars.as_ref().as_bytes()),
