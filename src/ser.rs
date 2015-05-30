@@ -10,13 +10,11 @@ const INDENT: &'static [u8] = b" ";
 
 /// A receiver for serialization events which are translated into a stream of characters, 
 /// destined to serialize value types.
-///
-/// The particular format is handled using a `Formatter` implementation.
 pub struct Serializer<W, D = Borrow<PresentationDetails>> 
     where D: Borrow<PresentationDetails>
 {
     writer: W,
-    formatter: StandardFormatter,
+    current_indent: usize,
     opts: D,
 
     /// `first` is used to signify if we should print a comma when we are walking through a
@@ -44,7 +42,7 @@ impl<W, D> Serializer<W, D>
     pub fn with_options(writer: W, options: D) -> Self {
         Serializer {
             writer: writer,
-            formatter: StandardFormatter::with_options(options.borrow().format.clone()),
+            current_indent: 0,
             opts: options,
             first: false,
         }
@@ -53,6 +51,39 @@ impl<W, D> Serializer<W, D>
     /// Unwrap the `Writer` from the `Serializer`.
     pub fn into_inner(self) -> W {
         self.writer
+    }
+
+    fn open(&mut self, ch: u8) -> io::Result<()>
+    {
+        self.current_indent += 1;
+        self.writer.write_all(&[ch])
+    }
+
+    fn comma(&mut self, first: bool) -> io::Result<()>
+    {
+        if first {
+            try!(self.writer.write_all(b"\n"));
+        } else {
+            try!(self.writer.write_all(b",\n"));
+        }
+
+        indent(&mut self.writer, self.current_indent * 
+               self.opts.borrow().format.spaces_per_indentation_level)
+    }
+
+    fn colon(&mut self) -> io::Result<()>
+    {
+        self.writer.write_all(b": ")
+    }
+
+    fn close(&mut self, ch: u8) -> io::Result<()>
+    {
+        self.current_indent -= 1;
+        try!(self.writer.write(b"\n"));
+        try!(indent(&mut self.writer, self.current_indent * 
+                         self.opts.borrow().format.spaces_per_indentation_level));
+
+        self.writer.write_all(&[ch])
     }
 
     /// Must be called once when starting to serialize any amount of documents.
@@ -189,19 +220,19 @@ impl<W, D> ser::Serializer for Serializer<W, D>
             |NullScalarStyle::HideEntry 
                 => Ok(()),
             NullScalarStyle::Show
-                => encode_scalar(&mut self.formatter, &mut self.writer, Tag::Null, 
+                => encode_scalar(&mut self.writer, Tag::Null, 
                                  &self.opts.borrow().format.encoding, 
                                  &self.opts.borrow().scalar_value_details, "null"),
         }
     }
 
     fn visit_enum_unit(&mut self, _name: &str, variant: &str) -> io::Result<()> {
-        try!(self.formatter.open(&mut self.writer, b'{'));
-        try!(self.formatter.comma(&mut self.writer, true));
+        try!(self.open(b'{'));
+        try!(self.comma(true));
         try!(self.visit_str(variant));
-        try!(self.formatter.colon(&mut self.writer));
+        try!(self.colon());
         try!(self.writer.write_all(b"[]"));
-        self.formatter.close(&mut self.writer, b'}')
+        self.close(b'}')
     }
 
     fn visit_seq<V>(&mut self, mut visitor: V) -> io::Result<()>
@@ -212,13 +243,13 @@ impl<W, D> ser::Serializer for Serializer<W, D>
                 self.writer.write_all(b"[]")
             }
             _ => {
-                try!(self.formatter.open(&mut self.writer, b'['));
+                try!(self.open(b'['));
 
                 self.first = true;
 
                 while let Some(()) = try!(visitor.visit(self)) { }
 
-                self.formatter.close(&mut self.writer, b']')
+                self.close(b']')
             }
         }
 
@@ -227,18 +258,19 @@ impl<W, D> ser::Serializer for Serializer<W, D>
     fn visit_enum_seq<V>(&mut self, _name: &str, variant: &str, visitor: V) -> io::Result<()>
         where V: ser::SeqVisitor,
     {
-        try!(self.formatter.open(&mut self.writer, b'{'));
-        try!(self.formatter.comma(&mut self.writer, true));
+        try!(self.open(b'{'));
+        try!(self.comma(true));
         try!(self.visit_str(variant));
-        try!(self.formatter.colon(&mut self.writer));
+        try!(self.colon());
         try!(self.visit_seq(visitor));
-        self.formatter.close(&mut self.writer, b'}')
+        self.close(b'}')
     }
 
     fn visit_seq_elt<T>(&mut self, value: T) -> io::Result<()>
         where T: ser::Serialize,
     {
-        try!(self.formatter.comma(&mut self.writer, self.first));
+        let first = self.first;
+        try!(self.comma(first));
         self.first = false;
 
         value.serialize(self)
@@ -252,13 +284,13 @@ impl<W, D> ser::Serializer for Serializer<W, D>
                 self.writer.write_all(b"{}")
             }
             _ => {
-                try!(self.formatter.open(&mut self.writer, b'{'));
+                try!(self.open(b'{'));
 
                 self.first = true;
 
                 while let Some(()) = try!(visitor.visit(self)) { }
 
-                self.formatter.close(&mut self.writer, b'}')
+                self.close(b'}')
             }
         }
     }
@@ -266,24 +298,25 @@ impl<W, D> ser::Serializer for Serializer<W, D>
     fn visit_enum_map<V>(&mut self, _name: &str, variant: &str, visitor: V) -> io::Result<()>
         where V: ser::MapVisitor,
     {
-        try!(self.formatter.open(&mut self.writer, b'{'));
-        try!(self.formatter.comma(&mut self.writer, true));
+        try!(self.open(b'{'));
+        try!(self.comma(true));
         try!(self.visit_str(variant));
-        try!(self.formatter.colon(&mut self.writer));
+        try!(self.colon());
         try!(self.visit_map(visitor));
 
-        self.formatter.close(&mut self.writer, b'}')
+        self.close(b'}')
     }
 
     fn visit_map_elt<K, V>(&mut self, key: K, value: V) -> io::Result<()>
         where K: ser::Serialize,
               V: ser::Serialize,
     {
-        try!(self.formatter.comma(&mut self.writer, self.first));
+        let first = self.first;
+        try!(self.comma(first));
         self.first = false;
 
         try!(key.serialize(self));
-        try!(self.formatter.colon(&mut self.writer));
+        try!(self.colon());
         value.serialize(self)
     }
 
@@ -566,7 +599,7 @@ impl AsRef<str> for LineBreak {
 
 /// Options defining how whitespace is handled within the YAML stream
 #[derive(Debug, PartialEq, Clone)]
-pub struct FormatterOptions {
+pub struct FormatDetails {
     /// Amount of spaces one indentation level will assume
     pub spaces_per_indentation_level: usize,
     /// Identifies the output encoding
@@ -575,9 +608,9 @@ pub struct FormatterOptions {
     pub line_break: LineBreak,
 }
 
-impl Default for FormatterOptions {
+impl Default for FormatDetails {
     fn default() -> Self {
-        FormatterOptions {
+        FormatDetails {
             spaces_per_indentation_level: 2,
             encoding: Default::default(),
             line_break: Default::default(),
@@ -617,7 +650,7 @@ pub struct PresentationDetails {
     /// If `Some(...)` is used, we will enforce a particular indicator style.
     pub document_indicator_style: Option<DocumentIndicatorStyle>,
     /// Specify how to output characters and how to deal with line-breaks
-    pub format: FormatterOptions,
+    pub format: FormatDetails,
 }
 
 impl Default for PresentationDetails {
@@ -749,68 +782,12 @@ impl PresentationDetails {
                 null_style: NullScalarStyle::Show,
             },
             document_indicator_style: Some(DocumentIndicatorStyle::Start(Some(YamlVersionDirective))),
-            format: FormatterOptions {
+            format: FormatDetails {
                 spaces_per_indentation_level: 2,
                 encoding: Default::default(),
                 line_break: Default::default(),
             }
         }
-    }
-}
-
-/// Controls how all non-scalars are serialized, which includes indicators and whitespace
-/// for example.
-///
-/// By default it will produce human-readable YAML documents, but may be configured
-/// using the `PresentationDetails` structure to produce documents according to your 
-/// requirements.
-struct StandardFormatter {
-    current_indent: usize,
-    opts: FormatterOptions,
-}
-
-impl StandardFormatter
-{
-    fn with_options(options: FormatterOptions) -> Self {
-        StandardFormatter {
-            current_indent: 0,
-            opts: options,
-        }
-    }
-
-    fn open<W>(&mut self, writer: &mut W, ch: u8) -> io::Result<()>
-        where W: io::Write,
-    {
-        self.current_indent += 1;
-        writer.write_all(&[ch])
-    }
-
-    fn comma<W>(&mut self, writer: &mut W, first: bool) -> io::Result<()>
-        where W: io::Write,
-    {
-        if first {
-            try!(writer.write_all(b"\n"));
-        } else {
-            try!(writer.write_all(b",\n"));
-        }
-
-        indent(writer, self.current_indent * self.opts.spaces_per_indentation_level)
-    }
-
-    fn colon<W>(&mut self, writer: &mut W) -> io::Result<()>
-        where W: io::Write,
-    {
-        writer.write_all(b": ")
-    }
-
-    fn close<W>(&mut self, writer: &mut W, ch: u8) -> io::Result<()>
-        where W: io::Write,
-    {
-        self.current_indent -= 1;
-        try!(writer.write(b"\n"));
-        try!(indent(writer, self.current_indent * self.opts.spaces_per_indentation_level));
-
-        writer.write_all(&[ch])
     }
 }
 
@@ -994,7 +971,7 @@ fn encode_str<W, B>(writer: &mut W, encoding: &Encoding, chars: B) -> io::Result
     }
 }
 
-fn encode_scalar<W, B>(formatter: &mut StandardFormatter, writer: &mut W, tag: Tag, 
+fn encode_scalar<W, B>(writer: &mut W, tag: Tag, 
                        encoding: &Encoding, opts: &ScalarDetails, chars: B) -> io::Result<()>
     where W: io::Write,
           B: AsRef<str>,
