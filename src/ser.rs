@@ -132,6 +132,34 @@ impl<W, D> Serializer<W, D>
             _ => Ok(())
         }
     }
+
+    fn encode_scalar<B>(&mut self, tag: Tag, opts: ScalarDetails, chars: B) -> io::Result<()>
+        where B: AsRef<str>
+    {
+        if opts.explicit_tag {
+            let encoding = &self.opts.borrow().format.encoding;
+            try!(encode_ascii(&mut self.writer, encoding, b" "));
+            try!(encode_ascii(&mut self.writer, encoding, tag.as_ref()));
+        }
+
+        match opts.style {
+            ScalarStyle::Block(_) => panic!("TODO"),
+            ScalarStyle::Flow(ref width, ref flow_style) => {
+                if let Tag::Str = tag {
+
+                } else { 
+
+                }
+
+                if *width == 0 {
+
+                } else {
+                    panic!("TODO")
+                }
+                Ok(()) // DEBUG
+            },
+        }
+    }
 }
 
 impl<W, D> ser::Serializer for Serializer<W, D>
@@ -219,10 +247,10 @@ impl<W, D> ser::Serializer for Serializer<W, D>
             NullScalarStyle::HideValue
             |NullScalarStyle::HideEntry 
                 => Ok(()),
-            NullScalarStyle::Show
-                => encode_scalar(&mut self.writer, Tag::Null, 
-                                 &self.opts.borrow().format.encoding, 
-                                 &self.opts.borrow().scalar_value_details, "null"),
+            NullScalarStyle::Show => {
+                let svd = self.opts.borrow().scalar_value_details.clone();
+                self.encode_scalar(Tag::Null, svd, "null")
+            },
         }
     }
 
@@ -321,17 +349,15 @@ impl<W, D> ser::Serializer for Serializer<W, D>
     }
 
     fn format() -> &'static str {
-        "json"
+        "yaml"
     }
 }
-
-
 
 /// Defines the way we shall use to preserve newlines within folded scalar block 
 /// literals.
 ///
 /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2760844)
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum FoldedBlockScalarNewlinePreservationMode {
     /// A line break is indicated by a single blank line
     BlankLines,
@@ -350,7 +376,7 @@ pub enum FoldedBlockScalarNewlinePreservationMode {
 /// This style only works within a Block structure
 ///
 /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#style/block/)
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum BlockScalarStyle {
     /// Literal scalar blocks are indicated by the `|` character within the YAML file
     /// and cause line-breaks to remain significant.
@@ -373,7 +399,7 @@ pub enum BlockScalarStyle {
 /// Therefore, the Flow style is a form of a folded scalar style.
 ///
 /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2786942)
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum FlowScalarStyle {
     /// Scalars are not enclosed by identifiers at all, e.g. `key: value`
     Plain,
@@ -415,7 +441,7 @@ pub enum StructureStyle {
 /// Specify how scalars are serialized.
 ///
 /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2766446)
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ScalarStyle {
     /// Use indentation to denote scalar values
     Block(BlockScalarStyle),
@@ -525,7 +551,7 @@ pub enum NullScalarStyle {
 }
 
 /// Combines all information necessary to serialize a scalar, like keys or values
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct ScalarDetails {
     pub style: ScalarStyle,
     /// If true, a `!!tag` will be serialized even though an implicit one would do as well.
@@ -971,31 +997,3 @@ fn encode_str<W, B>(writer: &mut W, encoding: &Encoding, chars: B) -> io::Result
     }
 }
 
-fn encode_scalar<W, B>(writer: &mut W, tag: Tag, 
-                       encoding: &Encoding, opts: &ScalarDetails, chars: B) -> io::Result<()>
-    where W: io::Write,
-          B: AsRef<str>,
-{
-    if opts.explicit_tag {
-        try!(encode_ascii(writer, encoding, b" "));
-        try!(encode_ascii(writer, encoding, tag.as_ref()));
-    }
-
-    match opts.style {
-        ScalarStyle::Block(_) => panic!("TODO"),
-        ScalarStyle::Flow(ref width, ref flow_style) => {
-            if let Tag::Str = tag {
-
-            } else { 
-
-            }
-
-            if *width == 0 {
-
-            } else {
-                panic!("TODO")
-            }
-            Ok(()) // DEBUG
-        },
-    }
-}
