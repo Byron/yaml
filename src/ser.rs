@@ -8,6 +8,15 @@ use serde::ser;
 /// The only allowed indentation character
 const INDENT: &'static [u8] = b" ";
 
+/// Identifies the type of structure we are currently in information 
+#[derive(Clone)]
+enum StructureKind {
+    /// We are looking at a sequence
+    Sequence,
+    /// We are within a Mapping
+    Mapping,
+}
+
 /// A receiver for serialization events which are translated into a stream of characters, 
 /// destined to serialize value types.
 pub struct Serializer<W, D = Borrow<PresentationDetails>> 
@@ -16,6 +25,7 @@ pub struct Serializer<W, D = Borrow<PresentationDetails>>
     writer: W,
     current_indent: usize,
     opts: D,
+    stack: Vec<StructureKind>,
 
     /// `first` is used to signify if we should print a comma when we are walking through a
     /// sequence.
@@ -45,6 +55,7 @@ impl<W, D> Serializer<W, D>
             current_indent: 0,
             opts: options,
             first: false,
+            stack: Vec::new(),
         }
     }
 
@@ -53,10 +64,25 @@ impl<W, D> Serializer<W, D>
         self.writer
     }
 
-    fn open(&mut self, ch: u8) -> io::Result<()>
+    fn open(&mut self, kind: StructureKind) -> io::Result<()>
     {
         self.current_indent += 1;
-        self.writer.write_all(&[ch])
+        self.stack.push(kind.clone());
+        let open_str: &[u8] = 
+            match kind {
+                StructureKind::Sequence => {
+                    match self.opts.borrow().sequence_details.style {
+                        // In block mode, we always start on a new line
+                        StructureStyle::Block => self.opts.borrow().format.line_break.as_ref(),
+                        StructureStyle::Flow => b"["
+                    }
+                },
+                StructureKind::Mapping => {
+                    panic!("TODO")
+                }
+            };
+
+        encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, open_str)
     }
 
     fn comma(&mut self, first: bool) -> io::Result<()>
@@ -76,14 +102,18 @@ impl<W, D> Serializer<W, D>
         self.writer.write_all(b": ")
     }
 
-    fn close(&mut self, ch: u8) -> io::Result<()>
+    fn close(&mut self) -> io::Result<()>
     {
         self.current_indent -= 1;
+        let kind =  self.stack.pop()
+                              .expect("Calls to open() and close() must match exactly");
         try!(self.writer.write(b"\n"));
         try!(indent(&mut self.writer, self.current_indent * 
                          self.opts.borrow().format.spaces_per_indentation_level));
 
-        self.writer.write_all(&[ch])
+        // self.writer.write_all(&[ch])
+        // TODO: Write actual value
+        Ok(())
     }
 
     /// Must be called once when starting to serialize any amount of documents.
@@ -280,12 +310,12 @@ impl<W, D> ser::Serializer for Serializer<W, D>
     }
 
     fn visit_enum_unit(&mut self, _name: &str, variant: &str) -> io::Result<()> {
-        try!(self.open(b'{'));
+        try!(self.open(StructureKind::Mapping));
         try!(self.comma(true));
         try!(self.visit_str(variant));
         try!(self.colon());
         try!(self.writer.write_all(b"[]"));
-        self.close(b'}')
+        self.close()
     }
 
     fn visit_seq<V>(&mut self, mut visitor: V) -> io::Result<()>
@@ -296,13 +326,13 @@ impl<W, D> ser::Serializer for Serializer<W, D>
                 self.writer.write_all(b"[]")
             }
             _ => {
-                try!(self.open(b'['));
+                try!(self.open(StructureKind::Sequence));
 
                 self.first = true;
 
                 while let Some(()) = try!(visitor.visit(self)) { }
 
-                self.close(b']')
+                self.close()
             }
         }
 
@@ -311,12 +341,12 @@ impl<W, D> ser::Serializer for Serializer<W, D>
     fn visit_enum_seq<V>(&mut self, _name: &str, variant: &str, visitor: V) -> io::Result<()>
         where V: ser::SeqVisitor,
     {
-        try!(self.open(b'{'));
+        try!(self.open(StructureKind::Mapping));
         try!(self.comma(true));
         try!(self.visit_str(variant));
         try!(self.colon());
         try!(self.visit_seq(visitor));
-        self.close(b'}')
+        self.close()
     }
 
     fn visit_seq_elt<T>(&mut self, value: T) -> io::Result<()>
@@ -337,13 +367,13 @@ impl<W, D> ser::Serializer for Serializer<W, D>
                 self.writer.write_all(b"{}")
             }
             _ => {
-                try!(self.open(b'{'));
+                try!(self.open(StructureKind::Mapping));
 
                 self.first = true;
 
                 while let Some(()) = try!(visitor.visit(self)) { }
 
-                self.close(b'}')
+                self.close()
             }
         }
     }
@@ -351,13 +381,13 @@ impl<W, D> ser::Serializer for Serializer<W, D>
     fn visit_enum_map<V>(&mut self, _name: &str, variant: &str, visitor: V) -> io::Result<()>
         where V: ser::MapVisitor,
     {
-        try!(self.open(b'{'));
+        try!(self.open(StructureKind::Mapping));
         try!(self.comma(true));
         try!(self.visit_str(variant));
         try!(self.colon());
         try!(self.visit_map(visitor));
 
-        self.close(b'}')
+        self.close()
     }
 
     fn visit_map_elt<K, V>(&mut self, key: K, value: V) -> io::Result<()>
@@ -375,6 +405,194 @@ impl<W, D> ser::Serializer for Serializer<W, D>
 
     fn format() -> &'static str {
         "yaml"
+    }
+}
+
+fn escape_bytes<W>(wr: &mut W, bytes: &[u8]) -> io::Result<()>
+    where W: io::Write
+{
+    try!(wr.write_all(b"\""));
+
+    let mut start = 0;
+
+    for (i, byte) in bytes.iter().enumerate() {
+        let escaped = match *byte {
+            b'"' => b"\\\"",
+            b'\\' => b"\\\\",
+            b'\x08' => b"\\b",
+            b'\x0c' => b"\\f",
+            b'\n' => b"\\n",
+            b'\r' => b"\\r",
+            b'\t' => b"\\t",
+            _ => { continue; }
+        };
+
+        if start < i {
+            try!(wr.write_all(&bytes[start..i]));
+        }
+
+        try!(wr.write_all(escaped));
+
+        start = i + 1;
+    }
+
+    if start != bytes.len() {
+        try!(wr.write_all(&bytes[start..]));
+    }
+
+    try!(wr.write_all(b"\""));
+    Ok(())
+}
+
+fn escape_str<W>(wr: &mut W, value: &str) -> io::Result<()>
+    where W: io::Write
+{
+    escape_bytes(wr, value.as_bytes())
+}
+
+fn escape_char<W>(wr: &mut W, value: char) -> io::Result<()>
+    where W: io::Write
+{
+    // FIXME: this allocation is required in order to be compatible with stable
+    // rust, which doesn't support encoding a `char` into a stack buffer.
+    escape_bytes(wr, value.to_string().as_bytes())
+}
+
+fn fmt_f32_or_null<W>(wr: &mut W, value: f32) -> io::Result<()>
+    where W: io::Write
+{
+    match value.classify() {
+        FpCategory::Nan | FpCategory::Infinite => wr.write_all(b"null"),
+        _ => {
+            let s = format!("{:?}", value);
+            try!(wr.write_all(s.as_bytes()));
+            if !s.contains('.') {
+                try!(wr.write_all(b".0"))
+            }
+            Ok(())
+        }
+    }
+}
+
+fn fmt_f64_or_null<W>(wr: &mut W, value: f64) -> io::Result<()>
+    where W: io::Write
+{
+    match value.classify() {
+        FpCategory::Nan | FpCategory::Infinite => wr.write_all(b"null"),
+        _ => {
+            let s = format!("{:?}", value);
+            try!(wr.write_all(s.as_bytes()));
+            if !s.contains('.') {
+                try!(wr.write_all(b".0"))
+            }
+            Ok(())
+        }
+    }
+}
+
+/// Encode the specified struct into a YAML `[u8]` writer.
+
+pub fn to_writer<W, T>(writer: &mut W, value: &T) -> io::Result<()>
+    where W: io::Write,
+          T: ser::Serialize,
+{
+    to_writer_with_options(writer, value, PresentationDetails::default())
+}
+
+/// Encode the specified struct into a json `[u8]` writer, with the given 
+/// options to define how the character stream should look like.
+pub fn to_writer_with_options<W, T, D>(writer: &mut W, value: &T, 
+                                    options: D) -> io::Result<()>
+    where W: io::Write,
+          T: ser::Serialize,
+          D: Borrow<PresentationDetails>
+{
+    let mut ser = Serializer::with_options(writer, options);
+    try!(ser.begin_stream());
+    try!(ser.begin_document());
+    try!(value.serialize(&mut ser));
+    try!(ser.end_document());
+    Ok(())
+}
+
+/// Encode the specified struct into a YAML `[u8]` buffer.
+
+pub fn to_vec<T>(value: &T) -> Vec<u8>
+    where T: ser::Serialize,
+{
+    // We are writing to a Vec, which doesn't fail. So we can ignore
+    // the error.
+    let mut writer = Vec::with_capacity(128);
+    to_writer(&mut writer, value).unwrap();
+    writer
+}
+
+/// Encode the specified struct into a YAML `[u8]` buffer with the given options
+/// to define how the character stream should look like.
+pub fn to_vec_with_options<T, D>(value: &T, options: D) -> Vec<u8>
+    where T: ser::Serialize,
+          D: Borrow<PresentationDetails>
+{
+    let mut writer = Vec::with_capacity(128);
+    to_writer_with_options(&mut writer, value, options).unwrap();
+    writer
+}
+
+/// Encode the specified struct into a YAML `String` buffer.
+
+pub fn to_string<T>(value: &T) -> Result<String, FromUtf8Error>
+    where T: ser::Serialize
+{
+    let vec = to_vec(value);
+    String::from_utf8(vec)
+}
+
+/// Encode the specified struct into a YAML `String` buffer with the given 
+/// options to define how the character stream should look like.
+pub fn to_string_with_options<T, D>(value: &T, 
+                                    options: D) -> Result<String, FromUtf8Error>
+    where T: ser::Serialize,
+          D: Borrow<PresentationDetails>
+{
+    let vec = to_vec_with_options(value, options);
+    String::from_utf8(vec)
+}
+
+fn indent<W>(wr: &mut W, n: usize) -> io::Result<()>
+    where W: io::Write,
+{
+    for _ in 0 .. n {
+        try!(wr.write_all(INDENT));
+    }
+
+    Ok(())
+}
+
+fn encode_ascii<W, B>(writer: &mut W, encoding: &Encoding, chars: B) -> io::Result<()> 
+    where W: io::Write,
+          B: AsRef<[u8]>
+{
+    if chars.as_ref().len() == 0 {
+        return Ok(())
+    }
+    
+    match *encoding {
+        // ASCII is a valid subset of UTF8, and can thus be written directly
+        Encoding::Utf8(_) => writer.write_all(chars.as_ref()),
+    }
+}
+
+fn encode_str<W, B>(writer: &mut W, encoding: &Encoding, chars: B) -> io::Result<()> 
+    where W: io::Write,
+          B: AsRef<str>
+{
+    if chars.as_ref().len() == 0 {
+        return Ok(())
+    }
+
+    match *encoding {
+        // str.as_bytes() is guaranteed to be encoded in UTF-8
+        Encoding::Utf8(_) => writer.write_all(chars.as_ref().as_bytes()),
     }
 }
 
@@ -571,7 +789,7 @@ pub enum NullScalarStyle {
     Show,
     /// Hide null values, if they are in an entry, or standalone
     HideValue,
-    /// Hide the entire entry of a mapping, i.e. key: null
+    /// Hide the entire entry of a mapping, i.e. key: null, or if they are standalone
     HideEntry,
 }
 
@@ -841,192 +1059,3 @@ impl PresentationDetails {
         }
     }
 }
-
-fn escape_bytes<W>(wr: &mut W, bytes: &[u8]) -> io::Result<()>
-    where W: io::Write
-{
-    try!(wr.write_all(b"\""));
-
-    let mut start = 0;
-
-    for (i, byte) in bytes.iter().enumerate() {
-        let escaped = match *byte {
-            b'"' => b"\\\"",
-            b'\\' => b"\\\\",
-            b'\x08' => b"\\b",
-            b'\x0c' => b"\\f",
-            b'\n' => b"\\n",
-            b'\r' => b"\\r",
-            b'\t' => b"\\t",
-            _ => { continue; }
-        };
-
-        if start < i {
-            try!(wr.write_all(&bytes[start..i]));
-        }
-
-        try!(wr.write_all(escaped));
-
-        start = i + 1;
-    }
-
-    if start != bytes.len() {
-        try!(wr.write_all(&bytes[start..]));
-    }
-
-    try!(wr.write_all(b"\""));
-    Ok(())
-}
-
-fn escape_str<W>(wr: &mut W, value: &str) -> io::Result<()>
-    where W: io::Write
-{
-    escape_bytes(wr, value.as_bytes())
-}
-
-fn escape_char<W>(wr: &mut W, value: char) -> io::Result<()>
-    where W: io::Write
-{
-    // FIXME: this allocation is required in order to be compatible with stable
-    // rust, which doesn't support encoding a `char` into a stack buffer.
-    escape_bytes(wr, value.to_string().as_bytes())
-}
-
-fn fmt_f32_or_null<W>(wr: &mut W, value: f32) -> io::Result<()>
-    where W: io::Write
-{
-    match value.classify() {
-        FpCategory::Nan | FpCategory::Infinite => wr.write_all(b"null"),
-        _ => {
-            let s = format!("{:?}", value);
-            try!(wr.write_all(s.as_bytes()));
-            if !s.contains('.') {
-                try!(wr.write_all(b".0"))
-            }
-            Ok(())
-        }
-    }
-}
-
-fn fmt_f64_or_null<W>(wr: &mut W, value: f64) -> io::Result<()>
-    where W: io::Write
-{
-    match value.classify() {
-        FpCategory::Nan | FpCategory::Infinite => wr.write_all(b"null"),
-        _ => {
-            let s = format!("{:?}", value);
-            try!(wr.write_all(s.as_bytes()));
-            if !s.contains('.') {
-                try!(wr.write_all(b".0"))
-            }
-            Ok(())
-        }
-    }
-}
-
-/// Encode the specified struct into a YAML `[u8]` writer.
-
-pub fn to_writer<W, T>(writer: &mut W, value: &T) -> io::Result<()>
-    where W: io::Write,
-          T: ser::Serialize,
-{
-    to_writer_with_options(writer, value, PresentationDetails::default())
-}
-
-/// Encode the specified struct into a json `[u8]` writer, with the given 
-/// options to define how the character stream should look like.
-pub fn to_writer_with_options<W, T, D>(writer: &mut W, value: &T, 
-                                    options: D) -> io::Result<()>
-    where W: io::Write,
-          T: ser::Serialize,
-          D: Borrow<PresentationDetails>
-{
-    let mut ser = Serializer::with_options(writer, options);
-    try!(ser.begin_stream());
-    try!(ser.begin_document());
-    try!(value.serialize(&mut ser));
-    try!(ser.end_document());
-    Ok(())
-}
-
-/// Encode the specified struct into a YAML `[u8]` buffer.
-
-pub fn to_vec<T>(value: &T) -> Vec<u8>
-    where T: ser::Serialize,
-{
-    // We are writing to a Vec, which doesn't fail. So we can ignore
-    // the error.
-    let mut writer = Vec::with_capacity(128);
-    to_writer(&mut writer, value).unwrap();
-    writer
-}
-
-/// Encode the specified struct into a YAML `[u8]` buffer with the given options
-/// to define how the character stream should look like.
-pub fn to_vec_with_options<T, D>(value: &T, options: D) -> Vec<u8>
-    where T: ser::Serialize,
-          D: Borrow<PresentationDetails>
-{
-    let mut writer = Vec::with_capacity(128);
-    to_writer_with_options(&mut writer, value, options).unwrap();
-    writer
-}
-
-/// Encode the specified struct into a YAML `String` buffer.
-
-pub fn to_string<T>(value: &T) -> Result<String, FromUtf8Error>
-    where T: ser::Serialize
-{
-    let vec = to_vec(value);
-    String::from_utf8(vec)
-}
-
-/// Encode the specified struct into a YAML `String` buffer with the given 
-/// options to define how the character stream should look like.
-pub fn to_string_with_options<T, D>(value: &T, 
-                                    options: D) -> Result<String, FromUtf8Error>
-    where T: ser::Serialize,
-          D: Borrow<PresentationDetails>
-{
-    let vec = to_vec_with_options(value, options);
-    String::from_utf8(vec)
-}
-
-fn indent<W>(wr: &mut W, n: usize) -> io::Result<()>
-    where W: io::Write,
-{
-    for _ in 0 .. n {
-        try!(wr.write_all(INDENT));
-    }
-
-    Ok(())
-}
-
-fn encode_ascii<W, B>(writer: &mut W, encoding: &Encoding, chars: B) -> io::Result<()> 
-    where W: io::Write,
-          B: AsRef<[u8]>
-{
-    if chars.as_ref().len() == 0 {
-        return Ok(())
-    }
-    
-    match *encoding {
-        // ASCII is a valid subset of UTF8, and can thus be written directly
-        Encoding::Utf8(_) => writer.write_all(chars.as_ref()),
-    }
-}
-
-fn encode_str<W, B>(writer: &mut W, encoding: &Encoding, chars: B) -> io::Result<()> 
-    where W: io::Write,
-          B: AsRef<str>
-{
-    if chars.as_ref().len() == 0 {
-        return Ok(())
-    }
-
-    match *encoding {
-        // str.as_bytes() is guaranteed to be encoded in UTF-8
-        Encoding::Utf8(_) => writer.write_all(chars.as_ref().as_bytes()),
-    }
-}
-
