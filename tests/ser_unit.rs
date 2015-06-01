@@ -49,7 +49,7 @@ fn empty_sequence() {
 
 #[test]
 fn sequence() {
-    let mut opts = PresentationDetails::yaml();    
+    let opts = PresentationDetails::yaml();    
     let v = &[Option::None::<u32>, None];
 
     assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "-\n-");

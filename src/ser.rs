@@ -25,7 +25,6 @@ pub struct Serializer<W, D = Borrow<PresentationDetails>>
     writer: W,
     current_indent: usize,
     opts: D,
-    stack: Vec<StructureKind>,
 
     /// used to signify if we should print a comma when we are walking through a
     /// sequence.
@@ -61,7 +60,6 @@ impl<W, D> Serializer<W, D>
             opts: options,
             first_structure_elt: false,
             is_empty_document: true,
-            stack: Vec::with_capacity(10),
         }
     }
 
@@ -74,7 +72,6 @@ impl<W, D> Serializer<W, D>
     {
         self.current_indent += 1;
         self.first_structure_elt = true;
-        self.stack.push(kind.clone());
         let open_str: &[u8] = 
             match kind {
                 StructureKind::Sequence => {
@@ -107,17 +104,14 @@ impl<W, D> Serializer<W, D>
 
     /// Place a separator suitable for sequences or mappings, based on the current structure
     /// and presentation options
-    ///
-    /// TODO: If this would be specific to sequence elts and mapping elts respectively,
-    /// we would not have to maintain a stack of structures anymore, probably ... .
-    fn elt_sep(&mut self, first: bool) -> io::Result<()>
+    fn elt_sep(&mut self, first: bool, kind: StructureKind) -> io::Result<()>
     {
         if first {
             return Ok(())
         }
 
         let style = 
-            match *self.stack.last().expect("open() must have been called") {
+            match kind {
                 StructureKind::Sequence => &self.opts.borrow().sequence_details.style,
                 StructureKind::Mapping => &self.opts.borrow().mapping_details.details.style,
             };
@@ -141,11 +135,9 @@ impl<W, D> Serializer<W, D>
         self.writer.write_all(b": ")
     }
 
-    fn close(&mut self) -> io::Result<()>
+    fn close(&mut self, kind: StructureKind) -> io::Result<()>
     {
         self.current_indent -= 1;
-        let kind =  self.stack.pop()
-                              .expect("Calls to open() and close() must match exactly");
         try!(indent(&mut self.writer, self.current_indent * 
                          self.opts.borrow().format.spaces_per_indentation_level));
 
@@ -350,11 +342,11 @@ impl<W, D> ser::Serializer for Serializer<W, D>
 
     fn visit_enum_unit(&mut self, _name: &str, variant: &str) -> io::Result<()> {
         try!(self.open(StructureKind::Mapping));
-        try!(self.elt_sep(true));
+        try!(self.elt_sep(true, StructureKind::Mapping));
         try!(self.visit_str(variant));
         try!(self.colon());
         try!(self.writer.write_all(b"[]"));
-        self.close()
+        self.close(StructureKind::Mapping)
     }
 
     fn visit_seq<V>(&mut self, mut visitor: V) -> io::Result<()>
@@ -371,7 +363,7 @@ impl<W, D> ser::Serializer for Serializer<W, D>
 
                 while let Some(()) = try!(visitor.visit(self)) { }
 
-                self.close()
+                self.close(StructureKind::Sequence)
             }
         }
 
@@ -381,11 +373,11 @@ impl<W, D> ser::Serializer for Serializer<W, D>
         where V: ser::SeqVisitor,
     {
         try!(self.open(StructureKind::Mapping));
-        try!(self.elt_sep(true));
+        try!(self.elt_sep(true, StructureKind::Mapping));
         try!(self.visit_str(variant));
         try!(self.colon());
         try!(self.visit_seq(visitor));
-        self.close()
+        self.close(StructureKind::Mapping)
     }
 
     fn visit_seq_elt<T>(&mut self, value: T) -> io::Result<()>
@@ -393,7 +385,7 @@ impl<W, D> ser::Serializer for Serializer<W, D>
     {
         {
             let first = self.first_structure_elt;
-            try!(self.elt_sep(first));
+            try!(self.elt_sep(first, StructureKind::Sequence));
         }
         self.first_structure_elt = false;
 
@@ -416,7 +408,7 @@ impl<W, D> ser::Serializer for Serializer<W, D>
 
                 while let Some(()) = try!(visitor.visit(self)) { }
 
-                self.close()
+                self.close(StructureKind::Mapping)
             }
         }
     }
@@ -425,12 +417,12 @@ impl<W, D> ser::Serializer for Serializer<W, D>
         where V: ser::MapVisitor,
     {
         try!(self.open(StructureKind::Mapping));
-        try!(self.elt_sep(true));
+        try!(self.elt_sep(true, StructureKind::Mapping));
         try!(self.visit_str(variant));
         try!(self.colon());
         try!(self.visit_map(visitor));
 
-        self.close()
+        self.close(StructureKind::Mapping)
     }
 
     fn visit_map_elt<K, V>(&mut self, key: K, value: V) -> io::Result<()>
@@ -439,7 +431,7 @@ impl<W, D> ser::Serializer for Serializer<W, D>
     {
         {
             let first = self.first_structure_elt; // workaround borrowchk
-            try!(self.elt_sep(first));
+            try!(self.elt_sep(first, StructureKind::Mapping));
         }
         self.first_structure_elt = false;
 
