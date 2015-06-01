@@ -36,8 +36,20 @@ fn document_indicator_start_and_null() {
 
 
 #[test]
-fn sequence() {
+fn empty_sequence() {
     let mut opts = PresentationDetails::yaml();
+
+    // empty sequence, with or without document start
+    let v: &[u8] = &[];
+    assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "[]");
+
+    opts.document_indicator_style = Some(DocumentIndicatorStyle::Start(None));
+    assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "--- []");
+}
+
+#[test]
+fn sequence() {
+    let mut opts = PresentationDetails::yaml();    
     let v = &[Option::None::<u32>, None];
 
     assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "-\n-");

@@ -27,9 +27,14 @@ pub struct Serializer<W, D = Borrow<PresentationDetails>>
     opts: D,
     stack: Vec<StructureKind>,
 
-    /// `first` is used to signify if we should print a comma when we are walking through a
+    /// used to signify if we should print a comma when we are walking through a
     /// sequence.
-    first: bool,
+    first_structure_elt: bool,
+
+    /// Signals that we still have to serialize something - there was no call to anything
+    /// that would fill the document yet. It's used to help putting a first linebreak only 
+    /// if needed
+    is_empty_document: bool,
 }
 
 impl<W> Serializer<W, PresentationDetails>
@@ -54,8 +59,9 @@ impl<W, D> Serializer<W, D>
             writer: writer,
             current_indent: 0,
             opts: options,
-            first: false,
-            stack: Vec::new(),
+            first_structure_elt: false,
+            is_empty_document: true,
+            stack: Vec::with_capacity(10),
         }
     }
 
@@ -67,14 +73,27 @@ impl<W, D> Serializer<W, D>
     fn open(&mut self, kind: StructureKind) -> io::Result<()>
     {
         self.current_indent += 1;
+        self.first_structure_elt = true;
         self.stack.push(kind.clone());
         let open_str: &[u8] = 
             match kind {
                 StructureKind::Sequence => {
                     match self.opts.borrow().sequence_details.style {
                         // In block mode, we always start on a new line
-                        StructureStyle::Block => self.opts.borrow().format.line_break.as_ref(),
-                        StructureStyle::Flow => b"["
+                        StructureStyle::Block => {
+                            if self.is_empty_document { 
+                                b""
+                            } else {
+                                self.opts.borrow().format.line_break.as_ref()
+                            }
+                        },
+                        StructureStyle::Flow => {
+                            if self.is_empty_document {
+                                b"["
+                            } else {
+                                b" ["
+                            }
+                        }
                     }
                 },
                 StructureKind::Mapping => {
@@ -82,19 +101,39 @@ impl<W, D> Serializer<W, D>
                 }
             };
 
+        self.is_empty_document = false;
         encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, open_str)
     }
 
-    fn comma(&mut self, first: bool) -> io::Result<()>
+    /// Place a separator suitable for sequences or mappings, based on the current structure
+    /// and presentation options
+    ///
+    /// TODO: If this would be specific to sequence elts and mapping elts respectively,
+    /// we would not have to maintain a stack of structures anymore, probably ... .
+    fn elt_sep(&mut self, first: bool) -> io::Result<()>
     {
         if first {
-            try!(self.writer.write_all(b"\n"));
-        } else {
-            try!(self.writer.write_all(b",\n"));
+            return Ok(())
         }
 
-        indent(&mut self.writer, self.current_indent * 
-               self.opts.borrow().format.spaces_per_indentation_level)
+        let style = 
+            match *self.stack.last().expect("open() must have been called") {
+                StructureKind::Sequence => &self.opts.borrow().sequence_details.style,
+                StructureKind::Mapping => &self.opts.borrow().mapping_details.details.style,
+            };
+
+        match *style {
+            StructureStyle::Block => {
+                encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, 
+                             &self.opts.borrow().format.line_break)
+                // TODO: Actual indentation handling ... this is still from JSON
+                // indent(&mut self.writer, self.current_indent * 
+                //        self.opts.borrow().format.spaces_per_indentation_level)
+            },
+            StructureStyle::Flow => {
+                encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, b" ,")
+            }
+        }
     }
 
     fn colon(&mut self) -> io::Result<()>
@@ -107,7 +146,6 @@ impl<W, D> Serializer<W, D>
         self.current_indent -= 1;
         let kind =  self.stack.pop()
                               .expect("Calls to open() and close() must match exactly");
-        try!(self.writer.write(b"\n"));
         try!(indent(&mut self.writer, self.current_indent * 
                          self.opts.borrow().format.spaces_per_indentation_level));
 
@@ -145,6 +183,7 @@ impl<W, D> Serializer<W, D>
                 // We may assume that if called, there is at least one value coming.
                 // Therefore we can put a space here by default, as values will not 
                 // take care of that
+                self.is_empty_document = false;
                 encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, b"---")
             },
             None => Ok(()),
@@ -311,7 +350,7 @@ impl<W, D> ser::Serializer for Serializer<W, D>
 
     fn visit_enum_unit(&mut self, _name: &str, variant: &str) -> io::Result<()> {
         try!(self.open(StructureKind::Mapping));
-        try!(self.comma(true));
+        try!(self.elt_sep(true));
         try!(self.visit_str(variant));
         try!(self.colon());
         try!(self.writer.write_all(b"[]"));
@@ -323,12 +362,12 @@ impl<W, D> ser::Serializer for Serializer<W, D>
     {
         match visitor.len() {
             Some(len) if len == 0 => {
-                self.writer.write_all(b"[]")
+                encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, 
+                             if self.is_empty_document { &b"[]"[..] }
+                             else { &b" []"[..]})
             }
             _ => {
                 try!(self.open(StructureKind::Sequence));
-
-                self.first = true;
 
                 while let Some(()) = try!(visitor.visit(self)) { }
 
@@ -342,7 +381,7 @@ impl<W, D> ser::Serializer for Serializer<W, D>
         where V: ser::SeqVisitor,
     {
         try!(self.open(StructureKind::Mapping));
-        try!(self.comma(true));
+        try!(self.elt_sep(true));
         try!(self.visit_str(variant));
         try!(self.colon());
         try!(self.visit_seq(visitor));
@@ -352,9 +391,15 @@ impl<W, D> ser::Serializer for Serializer<W, D>
     fn visit_seq_elt<T>(&mut self, value: T) -> io::Result<()>
         where T: ser::Serialize,
     {
-        let first = self.first;
-        try!(self.comma(first));
-        self.first = false;
+        {
+            let first = self.first_structure_elt;
+            try!(self.elt_sep(first));
+        }
+        self.first_structure_elt = false;
+
+        if let StructureStyle::Block = self.opts.borrow().sequence_details.style {
+            try!(encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, b"-"));
+        }
 
         value.serialize(self)
     }
@@ -369,8 +414,6 @@ impl<W, D> ser::Serializer for Serializer<W, D>
             _ => {
                 try!(self.open(StructureKind::Mapping));
 
-                self.first = true;
-
                 while let Some(()) = try!(visitor.visit(self)) { }
 
                 self.close()
@@ -382,7 +425,7 @@ impl<W, D> ser::Serializer for Serializer<W, D>
         where V: ser::MapVisitor,
     {
         try!(self.open(StructureKind::Mapping));
-        try!(self.comma(true));
+        try!(self.elt_sep(true));
         try!(self.visit_str(variant));
         try!(self.colon());
         try!(self.visit_map(visitor));
@@ -394,9 +437,11 @@ impl<W, D> ser::Serializer for Serializer<W, D>
         where K: ser::Serialize,
               V: ser::Serialize,
     {
-        let first = self.first;
-        try!(self.comma(first));
-        self.first = false;
+        {
+            let first = self.first_structure_elt; // workaround borrowchk
+            try!(self.elt_sep(first));
+        }
+        self.first_structure_elt = false;
 
         try!(key.serialize(self));
         try!(self.colon());
@@ -775,7 +820,7 @@ pub struct MappingDetails {
     /// If false, it will only be used if the mapping key is a non-scalar one.
     /// 
     /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2798425)
-    pub explicit_block_entries: bool,
+    pub explicit_entries: bool,
 
     /// Determine how null values are presented
     pub null_style: NullScalarStyle
@@ -952,7 +997,7 @@ impl Default for PresentationDetails {
                     style: StructureStyle::Block,
                     explicit_tag: false,
                 },
-                explicit_block_entries: false,
+                explicit_entries: false,
                 null_style: NullScalarStyle::HideValue,
             },
             document_indicator_style: None,
@@ -1008,7 +1053,7 @@ impl PresentationDetails {
                     style: StructureStyle::Flow,
                     explicit_tag: false,
                 },
-                explicit_block_entries: false,
+                explicit_entries: false,
                 null_style: NullScalarStyle::Show,
             },
             document_indicator_style: None,
@@ -1047,7 +1092,7 @@ impl PresentationDetails {
                     style: StructureStyle::Flow,
                     explicit_tag: true,
                 },
-                explicit_block_entries: true,
+                explicit_entries: true,
                 null_style: NullScalarStyle::Show,
             },
             document_indicator_style: Some(DocumentIndicatorStyle::Start(Some(YamlVersionDirective))),
