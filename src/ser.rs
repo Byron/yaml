@@ -25,6 +25,7 @@ pub struct Serializer<W, D = Borrow<PresentationDetails>>
     writer: W,
     current_indent: usize,
     opts: D,
+    stack: Vec<NullScalarStyle>,
 
     /// used to signify if we should print a comma when we are walking through a
     /// sequence.
@@ -60,6 +61,7 @@ impl<W, D> Serializer<W, D>
             opts: options,
             first_structure_elt: false,
             is_empty_document: true,
+            stack: Vec::with_capacity(10),
         }
     }
 
@@ -72,7 +74,7 @@ impl<W, D> Serializer<W, D>
     {
         self.current_indent += 1;
         self.first_structure_elt = true;
-        let open_str: &[u8] = 
+        let open_ascii: &[u8] = 
             match kind {
                 StructureKind::Sequence => {
                     match self.opts.borrow().sequence_details.style {
@@ -85,6 +87,7 @@ impl<W, D> Serializer<W, D>
                             }
                         },
                         StructureStyle::Flow => {
+                            self.stack.push(NullScalarStyle::Show);
                             if self.is_empty_document {
                                 b"["
                             } else {
@@ -99,7 +102,7 @@ impl<W, D> Serializer<W, D>
             };
 
         self.is_empty_document = false;
-        encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, open_str)
+        encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, open_ascii)
     }
 
     /// Place a separator suitable for sequences or mappings, based on the current structure
@@ -128,7 +131,7 @@ impl<W, D> Serializer<W, D>
                 //        self.opts.borrow().format.spaces_per_indentation_level)
             },
             StructureStyle::Flow => {
-                encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, b" ,")
+                encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, b",")
             }
         }
     }
@@ -141,12 +144,30 @@ impl<W, D> Serializer<W, D>
     fn close(&mut self, kind: StructureKind) -> io::Result<()>
     {
         self.current_indent -= 1;
-        try!(indent(&mut self.writer, self.current_indent * 
-                         self.opts.borrow().format.spaces_per_indentation_level));
+        // TODO: Actual indentation handling
+        // try!(indent(&mut self.writer, self.current_indent * 
+        //                  self.opts.borrow().format.spaces_per_indentation_level));
 
-        // self.writer.write_all(&[ch])
-        // TODO: Write actual value
-        Ok(())
+        let close_ascii: &[u8] = 
+            match kind {
+                StructureKind::Sequence => {
+                    match self.opts.borrow().sequence_details.style {
+                        StructureStyle::Block => b"",
+                        StructureStyle::Flow => {
+                            self.stack.pop().expect("push and pop must match");
+                            b" ]"
+                        },
+                    }
+                },
+                StructureKind::Mapping => {
+                    match self.opts.borrow().mapping_details.details.style {
+                        StructureStyle::Block => b"",
+                        StructureStyle::Flow => b" }",
+                    }
+                }
+            };
+
+        encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, close_ascii)
     }
 
     /// Must be called once when starting to serialize any amount of documents.
@@ -332,7 +353,8 @@ impl<W, D> ser::Serializer for Serializer<W, D>
     }
 
     fn visit_unit(&mut self) -> io::Result<()> {
-        match self.opts.borrow().mapping_details.null_style {
+        match *self.stack.last()
+                         .unwrap_or(&self.opts.borrow().mapping_details.null_style) {
             NullScalarStyle::HideValue
             |NullScalarStyle::HideEntry 
                 => Ok(()),
@@ -404,7 +426,9 @@ impl<W, D> ser::Serializer for Serializer<W, D>
     {
         match visitor.len() {
             Some(len) if len == 0 => {
-                self.writer.write_all(b"{}")
+                encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, 
+                             if self.is_empty_document { &b"{}"[..] }
+                             else { &b" {}"[..]})
             }
             _ => {
                 try!(self.open(StructureKind::Mapping));

@@ -1,5 +1,10 @@
 #![allow(non_camel_case_types)]
 extern crate serde_yaml as yaml;
+extern crate serde;
+
+use std::collections::HashMap;
+
+mod structs;
 
 use yaml::ser::{PresentationDetails, DocumentIndicatorStyle, NullScalarStyle, FlowScalarStyle,
                 ScalarStyle, StructureStyle};
@@ -36,7 +41,7 @@ fn document_indicator_start_and_null() {
 
 
 #[test]
-fn empty_sequence() {
+fn empty_sequence_flow_block() {
 
     // empty sequence, with or without document start
     for style in &[StructureStyle::Flow, StructureStyle::Block] {
@@ -51,9 +56,25 @@ fn empty_sequence() {
     }
 }
 
+
+#[test]
+fn empty_mapping_flow_block() {
+    // empty sequence, with or without document start
+    for style in &[StructureStyle::Flow, StructureStyle::Block] {
+        let mut opts = PresentationDetails::yaml();
+        opts.sequence_details.style = style.clone();
+
+        let v = HashMap::<String, String>::new();
+        assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "{}");
+
+        opts.document_indicator_style = Some(DocumentIndicatorStyle::Start(None));
+        assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "--- {}");
+    }
+}
+
 #[test]
 fn sequence_block() {
-    let mut opts = PresentationDetails::yaml();    
+    let mut opts = PresentationDetails::yaml();
     let v = &[Option::None::<u32>, None];
 
     // hidden null (default)
@@ -70,4 +91,60 @@ fn sequence_block() {
 
     opts.document_indicator_style = Some(DocumentIndicatorStyle::StartEnd(None));
     assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "---\n-\n-\n...");
+}
+
+#[test]
+fn mapping_block() {
+    use structs::DualOptKey;
+    let mut opts = PresentationDetails::yaml();
+    let v = DualOptKey { key1: None, key2: None };
+
+    // null is hidden by default
+    assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "key1:\nkey2:");
+
+
+    opts.document_indicator_style = Some(DocumentIndicatorStyle::Start(None));
+    assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "---\nkey1:\nkey2:");
+
+
+    opts.document_indicator_style = Some(DocumentIndicatorStyle::StartEnd(None));
+    assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "---\nkey1:\nkey2:\n...");
+
+
+    opts.mapping_details.null_style = NullScalarStyle::Show;
+    assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), 
+               "---\nkey1: null\nkey2: null\n...");
+
+    // hiding all null values means we end up with an empty dict, which needs 
+    // to be presented in flow mode
+    opts.mapping_details.null_style = NullScalarStyle::HideEntry;
+    assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(),
+               "---\n{}\n...");
+
+    let v = DualOptKey { key1: None, key2: Some(42) };
+    assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(),
+               "---\nkey2: 42\n...");
+}
+
+
+#[test]
+fn sequence_flow() {
+    use structs::SingleOptKey;
+
+    let mut opts = PresentationDetails::yaml();
+    opts.sequence_details.style = StructureStyle::Flow;
+
+    let v = &[Option::None::<SingleOptKey>, None];
+
+    assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "[ null, null ]");
+
+    // flow mode enforce flow mode for all nested structures
+    // hiding of null values is done if possible, no matter what
+    let v = &[Option::None::<structs::SingleOptKey>, Some(SingleOptKey { key: None })];
+    assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "[ null, { key: } ]");
+}
+
+#[test]
+fn mapping_flow() {
+    panic!("TODO: this test")
 }

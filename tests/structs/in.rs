@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use serde;
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Data1 {
@@ -250,5 +251,13 @@ pub fn example_2_28_new() -> Vec<LogEntry> {
     ]
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct SingleOptKey {
+    pub key: Option<u32>,
+}
 
-
+#[derive(Serialize, Deserialize)]
+pub struct DualOptKey {
+    pub key1: Option<u32>,
+    pub key2: Option<u32>,
+}

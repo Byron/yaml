@@ -15,7 +15,7 @@ help:
 	$(info )
 
 test: fixtures
-	cargo test
+	cargo test --test ser_unit
 
 fixtures: tests/structs/fixed.rs tests/ser_data.rs
 
