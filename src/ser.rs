@@ -2,6 +2,8 @@ use std::io;
 use std::num::FpCategory;
 use std::string::FromUtf8Error;
 use std::borrow::Borrow;
+use std::fmt;
+use num;
 
 use serde::ser;
 
@@ -35,6 +37,12 @@ pub struct Serializer<W, D = Borrow<PresentationDetails>>
     /// that would fill the document yet. It's used to help putting a first linebreak only 
     /// if needed
     is_empty_document: bool,
+
+    /// While true, we signal that all serialized values are going to be part of a mapping key
+    /// If the key is not simple enough, the mapping style may be forced to be either an 
+    /// explicit mapping entry (if key is complex), or to use non-plain flow mode as escapes might
+    /// be needed.
+    is_mapping_key: bool,
 }
 
 impl<W> Serializer<W, PresentationDetails>
@@ -61,6 +69,7 @@ impl<W, D> Serializer<W, D>
             opts: options,
             first_structure_elt: false,
             is_empty_document: true,
+            is_mapping_key: false,
             stack: Vec::with_capacity(10),
         }
     }
@@ -72,6 +81,8 @@ impl<W, D> Serializer<W, D>
 
     fn open(&mut self, kind: StructureKind) -> io::Result<()>
     {
+        // REVIEW(ST): consider merging these branches - they look similar
+        // have to wait until internal data structures stabilize
         self.current_indent += 1;
         self.first_structure_elt = true;
         let open_ascii: &[u8] = 
@@ -97,7 +108,23 @@ impl<W, D> Serializer<W, D>
                     }
                 },
                 StructureKind::Mapping => {
-                    panic!("TODO")
+                    match self.opts.borrow().mapping_details.details.style {
+                        // In block mode, we always start on a new line
+                        StructureStyle::Block => {
+                            if self.is_empty_document { 
+                                b""
+                            } else {
+                                self.opts.borrow().format.line_break.as_ref()
+                            }
+                        },
+                        StructureStyle::Flow => {
+                            if self.is_empty_document {
+                                b"{"
+                            } else {
+                                b" {"
+                            }
+                        }
+                    }
                 }
             };
 
@@ -138,7 +165,7 @@ impl<W, D> Serializer<W, D>
 
     fn colon(&mut self) -> io::Result<()>
     {
-        self.writer.write_all(b": ")
+        encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, b":")
     }
 
     fn close(&mut self, kind: StructureKind) -> io::Result<()>
@@ -270,6 +297,41 @@ impl<W, D> Serializer<W, D>
             },
         }
     }
+
+    fn visit_any<T>(&mut self, tag: Tag, value: T) -> io::Result<()> 
+        where T: fmt::Display
+    {
+        if self.is_mapping_key {
+            panic!("TODO: complex keys")
+        } else {
+            // TODO(ST): use pre-allocated buffer ! Like a formatter that writes into the same,
+            //           have the slow, but simple implementation for now
+            let svd = self.opts.borrow().scalar_value_details.clone();
+            self.encode_scalar(tag, svd, format!("{}", value))
+        }
+    }
+
+    fn visit_float<T>(&mut self, tag: Tag, value: T) -> io::Result<()> 
+        where T: num::Float + fmt::Display
+    {
+        //! TODO(ST): inf and nan handling is part of the YAML specification, so it shouldn't 
+        //! be null, but instead be the required value. There is a lot going on 
+        //! regarding float parsing and serialization, and we might be fine with the
+        //! standard fmt::Display if we are lucky
+        // For reference
+        // match value.classify() {
+        //     FpCategory::Nan | FpCategory::Infinite => wr.write_all(b"null"),
+        //     _ => {
+        //         let s = format!("{:?}", value);
+        //         try!(wr.write_all(s.as_bytes()));
+        //         if !s.contains('.') {
+        //             try!(wr.write_all(b".0"))
+        //         }
+        //         Ok(())
+        //     }
+        // }
+        self.visit_any(tag, value)
+    }
 }
 
 impl<W, D> ser::Serializer for Serializer<W, D>
@@ -279,67 +341,88 @@ impl<W, D> ser::Serializer for Serializer<W, D>
     type Error = io::Error;
 
     fn visit_bool(&mut self, value: bool) -> io::Result<()> {
-        if value {
-            self.writer.write_all(b"true")
+        if self.is_mapping_key {
+            panic!("TODO: complex keys")
         } else {
-            self.writer.write_all(b"false")
+            let svd = self.opts.borrow().scalar_value_details.clone();
+            let bool_str = if value { &"true"[..] } else { &"false"[..] };
+            self.encode_scalar(Tag::Bool, svd, bool_str)
         }
     }
 
     fn visit_isize(&mut self, value: isize) -> io::Result<()> {
-        write!(self.writer, "{}", value)
+        self.visit_any(Tag::Int, value)
     }
 
     fn visit_i8(&mut self, value: i8) -> io::Result<()> {
-        write!(&mut self.writer, "{}", value)
+        self.visit_any(Tag::Int, value)
     }
 
     fn visit_i16(&mut self, value: i16) -> io::Result<()> {
-        write!(&mut self.writer, "{}", value)
+        self.visit_any(Tag::Int, value)
     }
 
     fn visit_i32(&mut self, value: i32) -> io::Result<()> {
-        write!(&mut self.writer, "{}", value)
+        self.visit_any(Tag::Int, value)
     }
 
     fn visit_i64(&mut self, value: i64) -> io::Result<()> {
-        write!(&mut self.writer, "{}", value)
+        self.visit_any(Tag::Int, value)
     }
 
     fn visit_usize(&mut self, value: usize) -> io::Result<()> {
-        write!(&mut self.writer, "{}", value)
+        self.visit_any(Tag::Int, value)
     }
 
     fn visit_u8(&mut self, value: u8) -> io::Result<()> {
-        write!(&mut self.writer, "{}", value)
+        self.visit_any(Tag::Int, value)
     }
 
     fn visit_u16(&mut self, value: u16) -> io::Result<()> {
-        write!(&mut self.writer, "{}", value)
+        self.visit_any(Tag::Int, value)
     }
 
     fn visit_u32(&mut self, value: u32) -> io::Result<()> {
-        write!(&mut self.writer, "{}", value)
+        self.visit_any(Tag::Int, value)
     }
 
     fn visit_u64(&mut self, value: u64) -> io::Result<()> {
-        write!(&mut self.writer, "{}", value)
+        self.visit_any(Tag::Int, value)
     }
 
     fn visit_f32(&mut self, value: f32) -> io::Result<()> {
-        fmt_f32_or_null(&mut self.writer, value)
+        self.visit_float(Tag::Float, value)
     }
 
     fn visit_f64(&mut self, value: f64) -> io::Result<()> {
-        fmt_f64_or_null(&mut self.writer, value)
+        self.visit_float(Tag::Float, value)
     }
 
     fn visit_char(&mut self, value: char) -> io::Result<()> {
-        escape_char(&mut self.writer, value)
+        // FIXME: this allocation is required in order to be compatible with stable
+        // rust, which doesn't support encoding a `char` into a stack buffer.
+        // We might be able to do it once we have some sort of formatter for use 
+        // See `visit_any()` for details
+        self.visit_str(value.to_string().as_ref())
     }
 
+    /// This is only called if the string is on the value side, or if it is 
+    /// part of a generic mapping, like a hash_map.
+    /// TODO(ST): we should know if we are a key of a map, or part of a complex mapping key
+    ///           as long as we don't know, we actually use the wrong settings 
+    ///           (should be scalar_key_details)
     fn visit_str(&mut self, value: &str) -> io::Result<()> {
-        escape_str(&mut self.writer, value)
+        if self.is_mapping_key {
+            panic!("TODO: complex keys")
+        } else {
+            let str_opts = 
+                if value.len() < self.opts.borrow().small_scalar_string_value_width_threshold {
+                    self.opts.borrow().small_scalar_string_value_details.clone()
+                } else {
+                    self.opts.borrow().big_scalar_string_value_details.clone()
+                };
+            self.encode_scalar(Tag::Str, str_opts, value)
+        }
     }
 
     fn visit_none(&mut self) -> io::Result<()> {
@@ -367,8 +450,11 @@ impl<W, D> ser::Serializer for Serializer<W, D>
 
     fn visit_enum_unit(&mut self, _name: &str, variant: &str) -> io::Result<()> {
         try!(self.open(StructureKind::Mapping));
-        try!(self.elt_sep(true, StructureKind::Mapping));
-        try!(self.visit_str(variant));
+        // we know the variant is a simple string, so we treat it that way
+        {
+            let skd = self.opts.borrow().scalar_key_details.clone(); // borrowchk :(
+            try!(self.encode_scalar(Tag::Str, skd, variant));
+        }
         try!(self.colon());
         try!(self.writer.write_all(b"[]"));
         self.close(StructureKind::Mapping)
@@ -398,8 +484,10 @@ impl<W, D> ser::Serializer for Serializer<W, D>
         where V: ser::SeqVisitor,
     {
         try!(self.open(StructureKind::Mapping));
-        try!(self.elt_sep(true, StructureKind::Mapping));
-        try!(self.visit_str(variant));
+        {
+            let skd = self.opts.borrow().scalar_key_details.clone(); // borrowchk :(
+            try!(self.encode_scalar(Tag::Str, skd, variant));
+        }
         try!(self.colon());
         try!(self.visit_seq(visitor));
         self.close(StructureKind::Mapping)
@@ -444,8 +532,10 @@ impl<W, D> ser::Serializer for Serializer<W, D>
         where V: ser::MapVisitor,
     {
         try!(self.open(StructureKind::Mapping));
-        try!(self.elt_sep(true, StructureKind::Mapping));
-        try!(self.visit_str(variant));
+        {
+            let skd = self.opts.borrow().scalar_key_details.clone(); // borrowchk :(
+            try!(self.encode_scalar(Tag::Str, skd, variant));
+        }
         try!(self.colon());
         try!(self.visit_map(visitor));
 
@@ -462,7 +552,9 @@ impl<W, D> ser::Serializer for Serializer<W, D>
         }
         self.first_structure_elt = false;
 
+        self.is_mapping_key = true;
         try!(key.serialize(self));
+        self.is_mapping_key = false;
         try!(self.colon());
         value.serialize(self)
     }
@@ -514,48 +606,7 @@ fn escape_str<W>(wr: &mut W, value: &str) -> io::Result<()>
     escape_bytes(wr, value.as_bytes())
 }
 
-fn escape_char<W>(wr: &mut W, value: char) -> io::Result<()>
-    where W: io::Write
-{
-    // FIXME: this allocation is required in order to be compatible with stable
-    // rust, which doesn't support encoding a `char` into a stack buffer.
-    escape_bytes(wr, value.to_string().as_bytes())
-}
-
-fn fmt_f32_or_null<W>(wr: &mut W, value: f32) -> io::Result<()>
-    where W: io::Write
-{
-    match value.classify() {
-        FpCategory::Nan | FpCategory::Infinite => wr.write_all(b"null"),
-        _ => {
-            let s = format!("{:?}", value);
-            try!(wr.write_all(s.as_bytes()));
-            if !s.contains('.') {
-                try!(wr.write_all(b".0"))
-            }
-            Ok(())
-        }
-    }
-}
-
-fn fmt_f64_or_null<W>(wr: &mut W, value: f64) -> io::Result<()>
-    where W: io::Write
-{
-    match value.classify() {
-        FpCategory::Nan | FpCategory::Infinite => wr.write_all(b"null"),
-        _ => {
-            let s = format!("{:?}", value);
-            try!(wr.write_all(s.as_bytes()));
-            if !s.contains('.') {
-                try!(wr.write_all(b".0"))
-            }
-            Ok(())
-        }
-    }
-}
-
 /// Encode the specified struct into a YAML `[u8]` writer.
-
 pub fn to_writer<W, T>(writer: &mut W, value: &T) -> io::Result<()>
     where W: io::Write,
           T: ser::Serialize,
@@ -580,7 +631,6 @@ pub fn to_writer_with_options<W, T, D>(writer: &mut W, value: &T,
 }
 
 /// Encode the specified struct into a YAML `[u8]` buffer.
-
 pub fn to_vec<T>(value: &T) -> Vec<u8>
     where T: ser::Serialize,
 {
@@ -603,7 +653,6 @@ pub fn to_vec_with_options<T, D>(value: &T, options: D) -> Vec<u8>
 }
 
 /// Encode the specified struct into a YAML `String` buffer.
-
 pub fn to_string<T>(value: &T) -> Result<String, FromUtf8Error>
     where T: ser::Serialize
 {
@@ -800,14 +849,24 @@ impl AsRef<[u8]> for Encoding {
 #[derive(Clone, PartialEq, Eq)]
 pub enum Tag {
     Null,
+    Bool,
+    Int,
+    Float,
     Str,
+    Map,
+    Seq,
 }
 
 impl AsRef<[u8]> for Tag {
     fn as_ref(&self) -> &[u8] {
         match *self {
             Tag::Null => b"!!null",
+            Tag::Bool => b"!!bool",
+            Tag::Int => b"!!int",
+            Tag::Float => b"!!float",
             Tag::Str  => b"!!str",
+            Tag::Map  => b"!!map",
+            Tag::Seq  => b"!!seq",
         }
     }
 }

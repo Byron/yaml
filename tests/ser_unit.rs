@@ -177,3 +177,17 @@ fn mapping_flow() {
     assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(),
                "--- { key2: 42 }\n...");
 }
+
+#[test]
+fn mapping_explicit_entry_mode() {
+    panic!("TODO")    
+}
+
+#[test]
+#[should_panic]
+fn mapping_complex_keys_auto_explicit_entry() {
+    // This would require us to build a repreesntation of the entire mapping key before we put 
+    // down any character related to the key: value mapping. This requires us to have 
+    // some sort of YAML::Value, which we simly don't have right now.
+    panic!("We are currently unable to enforce using eplicit mapping entries for complex keys")
+}

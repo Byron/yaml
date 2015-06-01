@@ -16,6 +16,7 @@
 //! 
 //! [yaml-spec]: http://www.yaml.org/spec/1.2/spec.html
 extern crate serde;
+extern crate num;
 
 pub mod ser;
 
