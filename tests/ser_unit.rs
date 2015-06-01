@@ -2,7 +2,7 @@
 extern crate serde_yaml as yaml;
 
 use yaml::ser::{PresentationDetails, DocumentIndicatorStyle, NullScalarStyle, FlowScalarStyle,
-                ScalarStyle};
+                ScalarStyle, StructureStyle};
 
 #[test]
 fn document_indicator_start_and_null() {
@@ -37,20 +37,37 @@ fn document_indicator_start_and_null() {
 
 #[test]
 fn empty_sequence() {
-    let mut opts = PresentationDetails::yaml();
 
     // empty sequence, with or without document start
-    let v: &[u8] = &[];
-    assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "[]");
+    for style in &[StructureStyle::Flow, StructureStyle::Block] {
+        let mut opts = PresentationDetails::yaml();
+        opts.sequence_details.style = style.clone();
 
-    opts.document_indicator_style = Some(DocumentIndicatorStyle::Start(None));
-    assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "--- []");
+        let v: &[u8] = &[];
+        assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "[]");
+
+        opts.document_indicator_style = Some(DocumentIndicatorStyle::Start(None));
+        assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "--- []");
+    }
 }
 
 #[test]
-fn sequence() {
-    let opts = PresentationDetails::yaml();    
+fn sequence_block() {
+    let mut opts = PresentationDetails::yaml();    
     let v = &[Option::None::<u32>, None];
 
+    // hidden null (default)
     assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "-\n-");
+
+    opts.mapping_details.null_style = NullScalarStyle::Show;
+    assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "- null\n- null");
+
+    opts.document_indicator_style = Some(DocumentIndicatorStyle::Start(None));
+    assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "---\n- null\n- null");
+
+    opts.mapping_details.null_style = NullScalarStyle::HideValue;
+    assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "---\n-\n-");
+
+    opts.document_indicator_style = Some(DocumentIndicatorStyle::StartEnd(None));
+    assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "---\n-\n-\n...");
 }

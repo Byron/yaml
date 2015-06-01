@@ -104,6 +104,9 @@ impl<W, D> Serializer<W, D>
 
     /// Place a separator suitable for sequences or mappings, based on the current structure
     /// and presentation options
+    ///
+    /// **REVIEW(ST)**: currently it looks like we just need the style, not so much 
+    /// the StructureKind
     fn elt_sep(&mut self, first: bool, kind: StructureKind) -> io::Result<()>
     {
         if first {
@@ -708,7 +711,7 @@ impl AsRef<[u8]> for FlowScalarStyle {
 /// flow styles styles rely on explicit indicators.
 ///
 /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2766446)
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum StructureStyle {
     /// Uses indentation to denote structure
     Block,
@@ -770,6 +773,7 @@ impl AsRef<[u8]> for Encoding {
 /// the application can define custom tags to help dealing with any data type.
 ///
 /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2764295)
+#[derive(Clone, PartialEq, Eq)]
 pub enum Tag {
     Null,
     Str,
@@ -796,7 +800,7 @@ impl Default for Encoding {
 
 /// Combines all information necessary to serialize a structure, like mappings 
 /// and sequences.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct StructureDetails {
     pub style: StructureStyle,
     /// If true, a `!!tag` will be serialized even though an implicit one would do as well.
@@ -804,7 +808,7 @@ pub struct StructureDetails {
 }
 
 /// Contains all information to describe how to serialize mappings in YAML.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct MappingDetails {
     pub details: StructureDetails,
     /// If true, use an explicit form to describe keys and values in a mapping, for all 
@@ -819,7 +823,7 @@ pub struct MappingDetails {
 }
 
 /// Determine how null values are represented in various contexts
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum NullScalarStyle {
     /// Always show null values as `null`.
     /// It is affected by the settings for `scalar_value_details`
@@ -841,7 +845,7 @@ pub struct ScalarDetails {
 /// A marker to signal that the YAML directive should be produced at the beginning of the stream.
 ///
 /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2781553)
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct YamlVersionDirective;
 
 impl AsRef<[u8]> for YamlVersionDirective {
@@ -853,7 +857,7 @@ impl AsRef<[u8]> for YamlVersionDirective {
 /// Specifies how to separate various documents in a YAML stream.
 ///
 /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2800132)
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum DocumentIndicatorStyle {
     /// Enforce showing a document start indicator `---`, even in single-document mode 
     /// (i.e. `dump(...)`.
@@ -926,7 +930,7 @@ impl Default for FormatDetails {
 
 
 /// Options to define how YAML character streams will look like.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct PresentationDetails {
     /// Defines the style for scalar values, like strings, e.g. `key: string_value`
     /// that serialize to a string shorter than the `small_scalar_string_value_width_threshold`
