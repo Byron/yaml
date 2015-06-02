@@ -300,32 +300,16 @@ impl<W, D> Serializer<W, D>
                                 _ => &YAML_ESCAPE_FORMAT
                             };
 
-                        match *escape_format {
-                            EscapeFormat::JSON => {
-                                if let Some(enforced_flow_style) = escape_json(chars.as_ref(), 
-                                                                               &mut self.buf) {
-                                    // have escaped characters, folding is never done
-                                    (enforced_flow_style, self.buf.as_ref())
-                                } else {
-                                    // We are not allowed to have folding in json mode !
-                                    debug_assert!(chars.as_ref().len() == self.buf.len());
-                                    (flow_style, chars.as_ref())
-                                }
-                            },
-                            EscapeFormat::YAML => {
-                                if let Some(enforced_flow_style) 
-                                                = escape_yaml_and_fold(chars.as_ref(),
-                                                                       &mut self.buf, 
-                                                                       *width) {
-                                    // have escaped characters, possibly folded
-                                    (enforced_flow_style, self.buf.as_ref())
-                                } else if chars.as_ref().len() != self.buf.len() {
-                                    // have fold only - style unaffected
-                                    (flow_style, self.buf.as_ref())
-                                } else {
-                                    (flow_style, chars.as_ref())
-                                }
-                            }
+                        if let Some(enforced_flow_style)
+                                        = escape_str_and_fold(chars.as_ref(), &mut self.buf,
+                                                              *width, escape_format) {
+                            // have escaped characters, possibly folded
+                            (enforced_flow_style, self.buf.as_ref())
+                        } else if chars.as_ref().len() != self.buf.len() {
+                            // have fold only - style unaffected
+                            (flow_style, self.buf.as_ref())
+                        } else {
+                            (flow_style, chars.as_ref())
                         }
                     } else {
                         // Any other scalars neither need folding, nor do they need escaping
@@ -755,82 +739,11 @@ fn encode_str<W, B>(writer: &mut W, encoding: &Encoding, chars: B) -> io::Result
     }
 }
 
-
-/// Returns true if the destination buffer `dst` contains at least one escaped character
-/// from `src`.
-/// Please note that the string in dst may also be folded, and thus increase in length 
-fn escape_json(src: &str, dst: &mut String) -> Option<&'static FlowScalarStyle> {
-    use std::fmt::Write;
-
-    dst.clear();
-
-    let mut style = None;
-    let mut start = 0;
-
-    for (i, byte) in src.chars().enumerate() {
-        let escaped = 
-            match byte {
-                '"' => "\\\"",
-                '\\' => "\\\\",
-                '\x00' => "\\u0000",
-                '\x01' => "\\u0001",
-                '\x02' => "\\u0002",
-                '\x03' => "\\u0003",
-                '\x04' => "\\u0004",
-                '\x05' => "\\u0005",
-                '\x06' => "\\u0006",
-                '\x07' => "\\u0007",
-                '\x08' => "\\b",
-                '\x09' => "\\t",
-                '\x0a' => "\\n",
-                '\x0b' => "\\u000b",
-                '\x0c' => "\\f",
-                '\x0d' => "\\r",
-                '\x0e' => "\\u000e",
-                '\x0f' => "\\u000f",
-                '\x10' => "\\u0010",
-                '\x11' => "\\u0011",
-                '\x12' => "\\u0012",
-                '\x13' => "\\u0013",
-                '\x14' => "\\u0014",
-                '\x15' => "\\u0015",
-                '\x16' => "\\u0016",
-                '\x17' => "\\u0017",
-                '\x18' => "\\u0018",
-                '\x19' => "\\u0019",
-                '\x1a' => "\\u001a",
-                '\x1b' => "\\u001b",
-                '\x1c' => "\\u001c",
-                '\x1d' => "\\u001d",
-                '\x1e' => "\\u001e",
-                '\x1f' => "\\u001f",
-                '\x20' => {
-                    // TODO(ST): handle trailing and suffix whitespace
-                    "\x20"
-                },
-                '\x7f' => "\\u007f",
-                _ => { continue; }
-            };
-
-        if start < i {
-            dst.write_str(&src[start..i]).unwrap();
-        }
-
-        style = Some(&FLOW_DOUBLE_QUOTE);
-        dst.write_str(escaped).unwrap();
-
-        start = i + 1;
-    }
-
-    if start != src.len() {
-        dst.write_str(&src[start..]).unwrap();
-    }
-
-    style
-}
-
-/// Similar to escape_json, but with YAML specific escaping rules
-fn escape_yaml_and_fold(src: &str, dst: &mut String, max_fold_width: usize)
+/// Returns Some(Stylel) if the destination buffer `dst` contains at least one escaped character
+/// from `src` which requires the given style.
+/// Please note that the string in dst may also be folded, and thus increase in length, even if 
+/// None is returned.
+fn escape_str_and_fold(src: &str, dst: &mut String, max_fold_width: usize, format: &EscapeFormat)
                                                         -> Option<&'static FlowScalarStyle> 
 {
     use std::fmt::Write;
@@ -840,61 +753,121 @@ fn escape_yaml_and_fold(src: &str, dst: &mut String, max_fold_width: usize)
     let mut style = None;
     let mut start = 0;
 
-    for (i, byte) in src.chars().enumerate() {
-        let escaped = 
-            match byte {
-                '"' => "\\\"",
-                '\\' => "\\\\",
-                '\x00' => "\\0",
-                '\x01' => "\\x01",
-                '\x02' => "\\x02",
-                '\x03' => "\\x03",
-                '\x04' => "\\x04",
-                '\x05' => "\\x05",
-                '\x06' => "\\x06",
-                '\x07' => "\\a",
-                '\x08' => "\\b",
-                '\x09' => "\\t",
-                '\x0a' => "\\n",
-                '\x0b' => "\\v",
-                '\x0c' => "\\f",
-                '\x0d' => "\\r",
-                '\x0e' => "\\x0E",
-                '\x0f' => "\\x0F",
-                '\x10' => "\\u0010",
-                '\x11' => "\\u0011",
-                '\x12' => "\\u0012",
-                '\x13' => "\\u0013",
-                '\x14' => "\\u0014",
-                '\x15' => "\\u0015",
-                '\x16' => "\\u0016",
-                '\x17' => "\\u0017",
-                '\x18' => "\\u0018",
-                '\x19' => "\\u0019",
-                '\x1a' => "\\u001a",
-                '\x1b' => "\\e",
-                '\x1c' => "\\u001c",
-                '\x1d' => "\\u001d",
-                '\x1e' => "\\u001e",
-                '\x1f' => "\\u001f",
-                '\x7f' => "\\u007f",
-                '\u{a0}' => "\\_",
-                '\u{85}' => "\\N",
-                '\u{2028}' => "\\L",
-                '\u{2029}' => "\\P",
-                _ => { continue; }
-            };
+    match *format {
+        EscapeFormat::YAML => {
+            for (i, byte) in src.chars().enumerate() {
+                let escaped = 
+                    match byte {
+                        '"' => "\\\"",
+                        '\\' => "\\\\",
+                        '\x00' => "\\0",
+                        '\x01' => "\\x01",
+                        '\x02' => "\\x02",
+                        '\x03' => "\\x03",
+                        '\x04' => "\\x04",
+                        '\x05' => "\\x05",
+                        '\x06' => "\\x06",
+                        '\x07' => "\\a",
+                        '\x08' => "\\b",
+                        '\x09' => "\\t",
+                        '\x0a' => "\\n",
+                        '\x0b' => "\\v",
+                        '\x0c' => "\\f",
+                        '\x0d' => "\\r",
+                        '\x0e' => "\\x0E",
+                        '\x0f' => "\\x0F",
+                        '\x10' => "\\u0010",
+                        '\x11' => "\\u0011",
+                        '\x12' => "\\u0012",
+                        '\x13' => "\\u0013",
+                        '\x14' => "\\u0014",
+                        '\x15' => "\\u0015",
+                        '\x16' => "\\u0016",
+                        '\x17' => "\\u0017",
+                        '\x18' => "\\u0018",
+                        '\x19' => "\\u0019",
+                        '\x1a' => "\\u001a",
+                        '\x1b' => "\\e",
+                        '\x1c' => "\\u001c",
+                        '\x1d' => "\\u001d",
+                        '\x1e' => "\\u001e",
+                        '\x1f' => "\\u001f",
+                        '\x7f' => "\\u007f",
+                        '\u{a0}' => "\\_",
+                        '\u{85}' => "\\N",
+                        '\u{2028}' => "\\L",
+                        '\u{2029}' => "\\P",
+                        _ => { continue; }
+                    };
 
-        if start < i {
-            dst.write_str(&src[start..i]).unwrap();
-        }
+                if start < i {
+                    dst.write_str(&src[start..i]).unwrap();
+                }
 
-        style = Some(&FLOW_DOUBLE_QUOTE);
-        dst.write_str(escaped).unwrap();
+                style = Some(&FLOW_DOUBLE_QUOTE);
+                dst.write_str(escaped).unwrap();
 
-        start = i + 1;
+                start = i + 1;
+            }
+        },// end YAML
+        EscapeFormat::JSON => {
+            for (i, byte) in src.chars().enumerate() {
+                let escaped = 
+                    match byte {
+                        '"' => "\\\"",
+                        '\\' => "\\\\",
+                        '\x00' => "\\u0000",
+                        '\x01' => "\\u0001",
+                        '\x02' => "\\u0002",
+                        '\x03' => "\\u0003",
+                        '\x04' => "\\u0004",
+                        '\x05' => "\\u0005",
+                        '\x06' => "\\u0006",
+                        '\x07' => "\\u0007",
+                        '\x08' => "\\b",
+                        '\x09' => "\\t",
+                        '\x0a' => "\\n",
+                        '\x0b' => "\\u000b",
+                        '\x0c' => "\\f",
+                        '\x0d' => "\\r",
+                        '\x0e' => "\\u000e",
+                        '\x0f' => "\\u000f",
+                        '\x10' => "\\u0010",
+                        '\x11' => "\\u0011",
+                        '\x12' => "\\u0012",
+                        '\x13' => "\\u0013",
+                        '\x14' => "\\u0014",
+                        '\x15' => "\\u0015",
+                        '\x16' => "\\u0016",
+                        '\x17' => "\\u0017",
+                        '\x18' => "\\u0018",
+                        '\x19' => "\\u0019",
+                        '\x1a' => "\\u001a",
+                        '\x1b' => "\\u001b",
+                        '\x1c' => "\\u001c",
+                        '\x1d' => "\\u001d",
+                        '\x1e' => "\\u001e",
+                        '\x1f' => "\\u001f",
+                        '\x20' => {
+                            // TODO(ST): handle trailing and suffix whitespace
+                            "\x20"
+                        },
+                        '\x7f' => "\\u007f",
+                        _ => { continue; }
+                    };
+
+                if start < i {
+                    dst.write_str(&src[start..i]).unwrap();
+                }
+
+                style = Some(&FLOW_DOUBLE_QUOTE);
+                dst.write_str(escaped).unwrap();
+
+                start = i + 1;
+            }
+        }// END JSON
     }
-
+    
     if start != src.len() {
         dst.write_str(&src[start..]).unwrap();
     }
