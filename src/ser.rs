@@ -8,8 +8,9 @@ use num;
 use serde::ser;
 
 static YAML_ESCAPE_FORMAT: EscapeFormat = EscapeFormat::YAML;
-static FLOW_DOUBLE_QUOTE_JSON: FlowScalarStyle = FlowScalarStyle::DoubleQuote(EscapeFormat::JSON);
-static FLOW_DOUBLE_QUOTE_YAML: FlowScalarStyle = FlowScalarStyle::DoubleQuote(EscapeFormat::YAML);
+// NOTE: The escape format doesn't actually matter to us !
+static FLOW_DOUBLE_QUOTE: FlowScalarStyle = FlowScalarStyle::DoubleQuote(EscapeFormat::YAML);
+static FLOW_SINGLE_QUOTE: FlowScalarStyle = FlowScalarStyle::SingleQuote;
 
 /// The only allowed indentation character
 const INDENT: &'static [u8] = b" ";
@@ -301,20 +302,29 @@ impl<W, D> Serializer<W, D>
 
                         match *escape_format {
                             EscapeFormat::JSON => {
-                                if escape_json_and_fold(chars.as_ref(),
-                                                        &mut self.buf,
-                                                        *width) {
-                                    // have escaped characters, possibly fold
-                                    (&FLOW_DOUBLE_QUOTE_JSON, self.buf.as_ref())
+                                if let Some(enforced_flow_style) = escape_json(chars.as_ref(), 
+                                                                               &mut self.buf) {
+                                    // have escaped characters, folding is never done
+                                    (enforced_flow_style, self.buf.as_ref())
+                                } else {
+                                    // We are not allowed to have folding in json mode !
+                                    debug_assert!(chars.as_ref().len() == self.buf.len());
+                                    (flow_style, chars.as_ref())
+                                }
+                            },
+                            EscapeFormat::YAML => {
+                                if let Some(enforced_flow_style) 
+                                                = escape_yaml_and_fold(chars.as_ref(),
+                                                                       &mut self.buf, 
+                                                                       *width) {
+                                    // have escaped characters, possibly folded
+                                    (enforced_flow_style, self.buf.as_ref())
                                 } else if chars.as_ref().len() != self.buf.len() {
                                     // have fold only - style unaffected
                                     (flow_style, self.buf.as_ref())
                                 } else {
                                     (flow_style, chars.as_ref())
                                 }
-                            },
-                            EscapeFormat::YAML => {
-                                panic!("TODO: YAML ESACPING")
                             }
                         }
                     } else {
@@ -749,52 +759,56 @@ fn encode_str<W, B>(writer: &mut W, encoding: &Encoding, chars: B) -> io::Result
 /// Returns true if the destination buffer `dst` contains at least one escaped character
 /// from `src`.
 /// Please note that the string in dst may also be folded, and thus increase in length 
-fn escape_json_and_fold(src: &str, dst: &mut String, max_fold_width: usize) -> bool {
+fn escape_json(src: &str, dst: &mut String) -> Option<&'static FlowScalarStyle> {
     use std::fmt::Write;
 
     dst.clear();
 
-    let mut escaped_char = false;
+    let mut style = None;
     let mut start = 0;
 
-    for (i, byte) in src.bytes().enumerate() {
+    for (i, byte) in src.chars().enumerate() {
         let escaped = 
             match byte {
-                b'"' => "\\\"",
-                b'\\' => "\\\\",
-                b'\x00' => "\\u0000",
-                b'\x01' => "\\u0001",
-                b'\x02' => "\\u0002",
-                b'\x03' => "\\u0003",
-                b'\x04' => "\\u0004",
-                b'\x05' => "\\u0005",
-                b'\x06' => "\\u0006",
-                b'\x07' => "\\u0007",
-                b'\x08' => "\\b",
-                b'\t' => "\\t",
-                b'\n' => "\\n",
-                b'\x0b' => "\\u000b",
-                b'\x0c' => "\\f",
-                b'\r' => "\\r",
-                b'\x0e' => "\\u000e",
-                b'\x0f' => "\\u000f",
-                b'\x10' => "\\u0010",
-                b'\x11' => "\\u0011",
-                b'\x12' => "\\u0012",
-                b'\x13' => "\\u0013",
-                b'\x14' => "\\u0014",
-                b'\x15' => "\\u0015",
-                b'\x16' => "\\u0016",
-                b'\x17' => "\\u0017",
-                b'\x18' => "\\u0018",
-                b'\x19' => "\\u0019",
-                b'\x1a' => "\\u001a",
-                b'\x1b' => "\\u001b",
-                b'\x1c' => "\\u001c",
-                b'\x1d' => "\\u001d",
-                b'\x1e' => "\\u001e",
-                b'\x1f' => "\\u001f",
-                b'\x7f' => "\\u007f",
+                '"' => "\\\"",
+                '\\' => "\\\\",
+                '\x00' => "\\u0000",
+                '\x01' => "\\u0001",
+                '\x02' => "\\u0002",
+                '\x03' => "\\u0003",
+                '\x04' => "\\u0004",
+                '\x05' => "\\u0005",
+                '\x06' => "\\u0006",
+                '\x07' => "\\u0007",
+                '\x08' => "\\b",
+                '\x09' => "\\t",
+                '\x0a' => "\\n",
+                '\x0b' => "\\u000b",
+                '\x0c' => "\\f",
+                '\x0d' => "\\r",
+                '\x0e' => "\\u000e",
+                '\x0f' => "\\u000f",
+                '\x10' => "\\u0010",
+                '\x11' => "\\u0011",
+                '\x12' => "\\u0012",
+                '\x13' => "\\u0013",
+                '\x14' => "\\u0014",
+                '\x15' => "\\u0015",
+                '\x16' => "\\u0016",
+                '\x17' => "\\u0017",
+                '\x18' => "\\u0018",
+                '\x19' => "\\u0019",
+                '\x1a' => "\\u001a",
+                '\x1b' => "\\u001b",
+                '\x1c' => "\\u001c",
+                '\x1d' => "\\u001d",
+                '\x1e' => "\\u001e",
+                '\x1f' => "\\u001f",
+                '\x20' => {
+                    // TODO(ST): handle trailing and suffix whitespace
+                    "\x20"
+                },
+                '\x7f' => "\\u007f",
                 _ => { continue; }
             };
 
@@ -802,19 +816,93 @@ fn escape_json_and_fold(src: &str, dst: &mut String, max_fold_width: usize) -> b
             dst.write_str(&src[start..i]).unwrap();
         }
 
-        escaped_char = true;
+        style = Some(&FLOW_DOUBLE_QUOTE);
         dst.write_str(escaped).unwrap();
 
         start = i + 1;
     }
 
     if start != src.len() {
-        escaped_char = true;
         dst.write_str(&src[start..]).unwrap();
     }
 
-    escaped_char
+    style
 }
+
+/// Similar to escape_json, but with YAML specific escaping rules
+fn escape_yaml_and_fold(src: &str, dst: &mut String, max_fold_width: usize)
+                                                        -> Option<&'static FlowScalarStyle> 
+{
+    use std::fmt::Write;
+
+    dst.clear();
+
+    let mut style = None;
+    let mut start = 0;
+
+    for (i, byte) in src.chars().enumerate() {
+        let escaped = 
+            match byte {
+                '"' => "\\\"",
+                '\\' => "\\\\",
+                '\x00' => "\\0",
+                '\x01' => "\\x01",
+                '\x02' => "\\x02",
+                '\x03' => "\\x03",
+                '\x04' => "\\x04",
+                '\x05' => "\\x05",
+                '\x06' => "\\x06",
+                '\x07' => "\\a",
+                '\x08' => "\\b",
+                '\x09' => "\\t",
+                '\x0a' => "\\n",
+                '\x0b' => "\\v",
+                '\x0c' => "\\f",
+                '\x0d' => "\\r",
+                '\x0e' => "\\x0E",
+                '\x0f' => "\\x0F",
+                '\x10' => "\\u0010",
+                '\x11' => "\\u0011",
+                '\x12' => "\\u0012",
+                '\x13' => "\\u0013",
+                '\x14' => "\\u0014",
+                '\x15' => "\\u0015",
+                '\x16' => "\\u0016",
+                '\x17' => "\\u0017",
+                '\x18' => "\\u0018",
+                '\x19' => "\\u0019",
+                '\x1a' => "\\u001a",
+                '\x1b' => "\\e",
+                '\x1c' => "\\u001c",
+                '\x1d' => "\\u001d",
+                '\x1e' => "\\u001e",
+                '\x1f' => "\\u001f",
+                '\x7f' => "\\u007f",
+                '\u{a0}' => "\\_",
+                '\u{85}' => "\\N",
+                '\u{2028}' => "\\L",
+                '\u{2029}' => "\\P",
+                _ => { continue; }
+            };
+
+        if start < i {
+            dst.write_str(&src[start..i]).unwrap();
+        }
+
+        style = Some(&FLOW_DOUBLE_QUOTE);
+        dst.write_str(escaped).unwrap();
+
+        start = i + 1;
+    }
+
+    if start != src.len() {
+        dst.write_str(&src[start..]).unwrap();
+    }
+
+    style
+}
+
+
 
 
 /// Defines the way we shall use to preserve newlines within folded scalar block 

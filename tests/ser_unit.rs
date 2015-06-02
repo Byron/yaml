@@ -194,11 +194,38 @@ fn mapping_complex_keys_auto_explicit_entry() {
 }
 
 #[test]
-fn json_auto_escape() {
-    let opts = PresentationDetails::json();
+fn json_yaml_auto_escape() {
+    let json_opts = PresentationDetails::json();
+    let yaml_opts = PresentationDetails::yaml();
 
-    for &(source, want) in &[("a", r#""a""#),
-                             ("\u{85}", r#""\u0085""#),] {
-        assert_eq!(yaml::to_string_with_options(&source, &opts).unwrap(), want);
+    for &(source, want_json, want_yaml) in &[("a",      r#""a""#,           "a"),
+                                             (" ",      r#"" ""#,           r#"' '"#),
+                                             ("\\",     r#""\\""#,          r#""\\""#),
+                                             ("\"",     r#""\"""#,          r#""\"""#),
+                                             ("\x00",   r#""\u0000""#,      r#""\0""#),
+                                             ("\x01",   r#""\u0001""#,      r#""\x01""#),
+                                             ("\x02",   r#""\u0002""#,      r#""\x02""#),
+                                             ("\x03",   r#""\u0003""#,      r#""\x03""#),
+                                             ("\x04",   r#""\u0004""#,      r#""\x04""#),
+                                             ("\x05",   r#""\u0005""#,      r#""\x05""#),
+                                             ("\x06",   r#""\u0006""#,      r#""\x06""#),
+                                             ("\x07",   r#""\u0007""#,      r#""\a""#),
+                                             ("\x08",   r#""\b""#,          r#""\b""#),
+                                             ("\x09",   r#""\t""#,          r#""\t""#),
+                                             ("\x0a",   r#""\n""#,          r#""\n""#),
+                                             ("\x0b",   r#""\u000b""#,      r#""\v""#),
+                                             ("\x0c",   r#""\f""#,          r#""\f""#),
+                                             ("\x0d",   r#""\r""#,          r#""\r""#),
+                                             ("\x0e",   r#""\u000e""#,      r#""\x0E""#),
+                                             ("\x0f",   r#""\u000f""#,      r#""\x0F""#),
+
+                                             ("\x1b",   r#""\u001b""#,      r#""\e""#),
+                                             ("\u{a0}", r#""\u00a0""#,      r#""\_""#),
+                                             ("\u{85}", r#""\u0085""#,      r#""\N""#),
+                                             ("\u{2028}", r#""\u2028""#,      r#""\L""#),
+                                             ("\u{2029}", r#""\u2029""#,      r#""\P""#),
+                                             ] {
+        assert_eq!(yaml::to_string_with_options(&source, &json_opts).unwrap(), want_json);
+        assert_eq!(yaml::to_string_with_options(&source, &yaml_opts).unwrap(), want_yaml);
     }
 }
