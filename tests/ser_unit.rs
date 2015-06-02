@@ -224,6 +224,12 @@ fn json_yaml_auto_escape() {
                                              ("\u{85}", r#""\u0085""#,      r#""\N""#),
                                              ("\u{2028}", r#""\u2028""#,      r#""\L""#),
                                              ("\u{2029}", r#""\u2029""#,      r#""\P""#),
+
+                                             // whitespace
+                                             ("  foo", r#""  foo""#,      r#"'  foo'"#),
+                                             ("foo  ", r#""foo  ""#,      r#"'foo  '"#),
+                                             ("foo  bar", r#""foo  bar""#,      r#"foo  bar"#),
+                                             ("\nfoo", r#""\nfoo""#,      r#""\nfoo""#),
                                              ] {
         assert_eq!(yaml::to_string_with_options(&source, &json_opts).unwrap(), want_json);
         assert_eq!(yaml::to_string_with_options(&source, &yaml_opts).unwrap(), want_yaml);

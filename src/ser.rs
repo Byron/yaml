@@ -294,15 +294,9 @@ impl<W, D> Serializer<W, D>
             ScalarStyle::Flow(ref width, ref flow_style) => {
                 let (flow_style, str_slice) = 
                     if have_string {
-                        let escape_format = 
-                            match *flow_style {
-                                FlowScalarStyle::DoubleQuote(ref escape_format) => escape_format,
-                                _ => &YAML_ESCAPE_FORMAT
-                            };
-
                         if let Some(enforced_flow_style)
                                         = escape_str_and_fold(chars.as_ref(), &mut self.buf,
-                                                              *width, escape_format) {
+                                                              *width, flow_style) {
                             // have escaped characters, possibly folded
                             (enforced_flow_style, self.buf.as_ref())
                         } else if chars.as_ref().len() != self.buf.len() {
@@ -743,8 +737,8 @@ fn encode_str<W, B>(writer: &mut W, encoding: &Encoding, chars: B) -> io::Result
 /// from `src` which requires the given style.
 /// Please note that the string in dst may also be folded, and thus increase in length, even if 
 /// None is returned.
-fn escape_str_and_fold(src: &str, dst: &mut String, max_fold_width: usize, format: &EscapeFormat)
-                                                        -> Option<&'static FlowScalarStyle> 
+fn escape_str_and_fold(src: &str, dst: &mut String, max_fold_width: usize, 
+                       in_style: &FlowScalarStyle) -> Option<&'static FlowScalarStyle>
 {
     use std::fmt::Write;
 
@@ -753,7 +747,23 @@ fn escape_str_and_fold(src: &str, dst: &mut String, max_fold_width: usize, forma
     let mut style = None;
     let mut start = 0;
 
-    match *format {
+    let (escape_format, is_double_quoted) = 
+        match *in_style {
+            FlowScalarStyle::DoubleQuote(ref escape_format) => {
+                (escape_format, false)
+            }
+            _ => (&YAML_ESCAPE_FORMAT, true)
+        };
+
+    // Figure out if the string can be represented with the given flow-style.
+    // Note that we don't have to care if it's already double-quote, as these strings 
+    // can represent everything
+    if !is_double_quoted {
+
+    }
+
+
+    match *escape_format {
         EscapeFormat::YAML => {
             for (i, byte) in src.chars().enumerate() {
                 let escaped = 
@@ -804,7 +814,9 @@ fn escape_str_and_fold(src: &str, dst: &mut String, max_fold_width: usize, forma
                     dst.write_str(&src[start..i]).unwrap();
                 }
 
-                style = Some(&FLOW_DOUBLE_QUOTE);
+                if !is_double_quoted {
+                    style = Some(&FLOW_DOUBLE_QUOTE);
+                }
                 dst.write_str(escaped).unwrap();
 
                 start = i + 1;
@@ -848,10 +860,6 @@ fn escape_str_and_fold(src: &str, dst: &mut String, max_fold_width: usize, forma
                         '\x1d' => "\\u001d",
                         '\x1e' => "\\u001e",
                         '\x1f' => "\\u001f",
-                        '\x20' => {
-                            // TODO(ST): handle trailing and suffix whitespace
-                            "\x20"
-                        },
                         '\x7f' => "\\u007f",
                         _ => { continue; }
                     };
@@ -860,7 +868,9 @@ fn escape_str_and_fold(src: &str, dst: &mut String, max_fold_width: usize, forma
                     dst.write_str(&src[start..i]).unwrap();
                 }
 
-                style = Some(&FLOW_DOUBLE_QUOTE);
+                if !is_double_quoted {
+                    style = Some(&FLOW_DOUBLE_QUOTE);
+                }
                 dst.write_str(escaped).unwrap();
 
                 start = i + 1;
