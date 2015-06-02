@@ -761,6 +761,24 @@ pub enum BlockScalarStyle {
     Folded(usize, FoldedBlockScalarNewlinePreservationMode),
 }
 
+
+/// Identifies how we will escape unprintable characters within strings
+#[derive(Debug, PartialEq, Clone)]
+pub enum EscapeFormat {
+    /// Use YAML encoding rules. Based on these 
+    /// [escaping rules](http://www.yaml.org/spec/1.2/spec.html#id2776092)
+    /// and the YAML [character set](http://www.yaml.org/spec/1.2/spec.html#id2770814)
+    ///
+    /// Reference implementation is [libyaml](https://goo.gl/4MgVbw)
+    YAML,
+    /// Use JSON encoding rules, as (somewhat indirectly) specified on
+    /// [json.org](http://json.org/).
+    /// 
+    /// Reference implementation is 
+    /// [yaml-rust](https://goo.gl/RqhY1W)
+    JSON
+}
+
 /// Defines how scalars are presented in Flow-Style.
 /// All scalars can span multiple lines, which are folded automatically.
 /// Therefore, the Flow style is a form of a folded scalar style.
@@ -777,7 +795,9 @@ pub enum FlowScalarStyle {
     /// # Examples
     /// * `key: "value \b1998\t1999\t2000 \x0d\x0a is \r\n"`
     /// * `escaped: ' # Not a ''comment''.'`
-    DoubleQuote,
+    /// 
+    /// The `EscapeFormat` indicates whether or not JSON should be supported.
+    DoubleQuote(EscapeFormat),
 
 }
 
@@ -786,7 +806,7 @@ impl AsRef<[u8]> for FlowScalarStyle {
         match *self {
             FlowScalarStyle::Plain => b"",
             FlowScalarStyle::SingleQuote => b"'",
-            FlowScalarStyle::DoubleQuote => b"\""
+            FlowScalarStyle::DoubleQuote(_) => b"\""
         }
     }
 }
@@ -1118,16 +1138,16 @@ impl PresentationDetails {
     pub fn json() -> PresentationDetails {
         PresentationDetails {
             small_scalar_string_value_details: ScalarDetails {
-                style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote),
+                style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote(EscapeFormat::JSON)),
                 explicit_tag: false
             },
             big_scalar_string_value_details: ScalarDetails {
-                style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote),
+                style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote(EscapeFormat::JSON)),
                 explicit_tag: false
             },
             small_scalar_string_value_width_threshold: 20,         // doesn't matter
             scalar_key_details: ScalarDetails {
-                style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote),
+                style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote(EscapeFormat::JSON)),
                 explicit_tag: false
             },
             scalar_value_details: ScalarDetails {
@@ -1157,20 +1177,20 @@ impl PresentationDetails {
     pub fn canonical() -> PresentationDetails {
         PresentationDetails {
             small_scalar_string_value_details: ScalarDetails {
-                style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote),
+                style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote(EscapeFormat::YAML)),
                 explicit_tag: true
             },
             big_scalar_string_value_details: ScalarDetails {
-                style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote),
+                style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote(EscapeFormat::YAML)),
                 explicit_tag: true
             },
             small_scalar_string_value_width_threshold: 20,
             scalar_key_details: ScalarDetails {
-                style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote),
+                style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote(EscapeFormat::YAML)),
                 explicit_tag: true
             },
             scalar_value_details: ScalarDetails {
-                style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote),
+                style: ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote(EscapeFormat::YAML)),
                 explicit_tag: true
             },
             sequence_details: StructureDetails{

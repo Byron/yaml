@@ -7,7 +7,7 @@ use std::collections::HashMap;
 mod structs;
 
 use yaml::ser::{PresentationDetails, DocumentIndicatorStyle, NullScalarStyle, FlowScalarStyle,
-                ScalarStyle, StructureStyle};
+                ScalarStyle, StructureStyle, EscapeFormat};
 
 #[test]
 fn document_indicator_start_and_null() {
@@ -26,7 +26,8 @@ fn document_indicator_start_and_null() {
 
     opts.scalar_value_details.style = ScalarStyle::Flow(0, FlowScalarStyle::SingleQuote);
     assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "--- !!null 'null'");
-    opts.scalar_value_details.style = ScalarStyle::Flow(0, FlowScalarStyle::DoubleQuote);
+    opts.scalar_value_details.style = ScalarStyle::Flow(0, 
+                                    FlowScalarStyle::DoubleQuote(EscapeFormat::YAML));
     assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "--- !!null \"null\"");
 
     opts.mapping_details.null_style = NullScalarStyle::HideValue;
