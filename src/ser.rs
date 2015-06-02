@@ -742,31 +742,16 @@ fn encode_str<W, B>(writer: &mut W, encoding: &Encoding, chars: B) -> io::Result
 /// from `src` which requires the given style.
 /// Please note that the string in dst may also be folded, and thus increase in length, even if 
 /// None is returned.
-///
-/// TODO(ST): we currently don't handle non-printable characters as I have no idea how to properly
-/// figure the out ... libyaml code is based on bytes and encodings, pyyaml on regex.
-/// 
-/// ```
-/// buf.clear();
-/// if c < '\u{10000}' {
-///     fmt::write(&mut buf, format_args!("\\u{:04x}", c as u32))
-///          .unwrap();
-/// } else {
-///     // use surrogate pair ??
-///     // py:
-///     // n -= 0x10000
-///     // s1 = 0xd800 | ((n >> 10) & 0x3ff)
-///     // s2 = 0xdc00 | (n & 0x3ff)
-///     // return '\\u{0:04x}\\u{1:04x}'.format(s1, s2)
-/// }
-/// buf.as_ref()
-/// ```
 fn escape_str_and_fold(src: &str, dst: &mut String, max_fold_width: usize, 
                        in_style: &FlowScalarStyle) -> Option<&'static FlowScalarStyle>
 {
     use std::fmt::Write;
 
     dst.clear();
+
+    // NOTE(ST): Used in hopefully rare cases, so heap-allocation won't matter
+    // If it does, it would be easy to pass the buf as argument so the heap memory can be reused.
+    let mut buf = String::new();
 
     let mut style = None;
     let mut start = 0;
@@ -876,6 +861,16 @@ fn escape_str_and_fold(src: &str, dst: &mut String, max_fold_width: usize,
                         '\u{85}' => "\\N",
                         '\u{2028}' => "\\L",
                         '\u{2029}' => "\\P",
+                        c if c.is_control() => {
+                            // no need to handle the 16 bit and 32bit cases, as we don't know them
+                            // There are plenty of unprintable characters, but figuring them all
+                            // out is difficult. According to pyyaml, chinese symbols are 
+                            // unprintable, even though they are not !
+                            debug_assert!(c < '\u{100}');
+                            buf.clear();
+                            fmt::write(&mut buf, format_args!("\\x{:02X}", c as u8)).unwrap();
+                            buf.as_ref()
+                        }
                         _ => { continue; }
                     };
 
@@ -935,6 +930,13 @@ fn escape_str_and_fold(src: &str, dst: &mut String, max_fold_width: usize,
                         '\u{85}' => "\\u0085",
                         '\u{2028}' => "\\u2028",
                         '\u{2029}' => "\\u2029",
+                        c if c.is_control() => {
+                            // no need for a surrogate pair as this category is only 8bit
+                            debug_assert!(c < '\u{10000}');
+                            buf.clear();
+                            fmt::write(&mut buf, format_args!("\\u{:04x}", c as u16)).unwrap();
+                            buf.as_ref()
+                        }
                         _ => { continue; }
                     };
 

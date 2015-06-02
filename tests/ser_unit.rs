@@ -240,6 +240,14 @@ fn json_yaml_auto_escape() {
                                              ("foo  bar", r#""foo  bar""#,      r#"foo  bar"#),
                                              ("foo'bar", r#""foo'bar""#,      r#""foo'bar""#),
                                              ("\nfoo", r#""\nfoo""#,      r#""\nfoo""#),
+             // non-printables: we do not escape them as most editors show them just fine !
+             // Interestingly chinese characters seem 'unprintable' when lookging
+             // at the libyaml implementation. They deserialize fine though ... .
+                                             ("😀", "\"\u{01F600}\"",    "\u{01F600}"),
+                                             ("好",  "\"\u{597D}\"",      "\u{597D}"),
+                                             ("س",   "\"\u{0633}\"",      "\u{0633}"),
+            // Control characters are escaped though
+                                             ("\u{9e}",   r#""\u009e""#,      r#""\x9E""#),
                                              ].iter() {
         assert_eq!(yaml::to_string_with_options(&source, &json_opts).unwrap(), want_json);
         assert_eq!(yaml::to_string_with_options(&source, &yaml_opts).unwrap(), want_yaml);
