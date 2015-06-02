@@ -38,11 +38,14 @@ pub struct Serializer<W, D = Borrow<PresentationDetails>>
     /// if needed
     is_empty_document: bool,
 
+    /// true while we are serializing a mapping key
+    ser_mapping_key: bool,
+
     /// While true, we signal that all serialized values are going to be part of a mapping key
     /// If the key is not simple enough, the mapping style may be forced to be either an 
     /// explicit mapping entry (if key is complex), or to use non-plain flow mode as escapes might
     /// be needed.
-    is_mapping_key: bool,
+    is_complex_key: bool,
 }
 
 impl<W> Serializer<W, PresentationDetails>
@@ -69,7 +72,8 @@ impl<W, D> Serializer<W, D>
             opts: options,
             first_structure_elt: false,
             is_empty_document: true,
-            is_mapping_key: false,
+            ser_mapping_key: false,
+            is_complex_key: false,
             stack: Vec::with_capacity(10),
         }
     }
@@ -81,6 +85,9 @@ impl<W, D> Serializer<W, D>
 
     fn open(&mut self, kind: StructureKind) -> io::Result<()>
     {
+        if self.ser_mapping_key {
+            self.is_complex_key = true;
+        }
         // REVIEW(ST): consider merging these branches - they look similar
         // have to wait until internal data structures stabilize
         self.current_indent += 1;
@@ -170,6 +177,10 @@ impl<W, D> Serializer<W, D>
 
     fn close(&mut self, kind: StructureKind) -> io::Result<()>
     {
+        if self.ser_mapping_key {
+            self.is_complex_key = false;
+        }
+
         self.current_indent -= 1;
         // TODO: Actual indentation handling
         // try!(indent(&mut self.writer, self.current_indent * 
@@ -301,7 +312,7 @@ impl<W, D> Serializer<W, D>
     fn visit_any<T>(&mut self, tag: Tag, value: T) -> io::Result<()> 
         where T: fmt::Display
     {
-        if self.is_mapping_key {
+        if self.is_complex_key {
             panic!("TODO: complex keys")
         } else {
             // TODO(ST): use pre-allocated buffer ! Like a formatter that writes into the same,
@@ -341,7 +352,7 @@ impl<W, D> ser::Serializer for Serializer<W, D>
     type Error = io::Error;
 
     fn visit_bool(&mut self, value: bool) -> io::Result<()> {
-        if self.is_mapping_key {
+        if self.is_complex_key {
             panic!("TODO: complex keys")
         } else {
             let svd = self.opts.borrow().scalar_value_details.clone();
@@ -412,7 +423,7 @@ impl<W, D> ser::Serializer for Serializer<W, D>
     ///           as long as we don't know, we actually use the wrong settings 
     ///           (should be scalar_key_details)
     fn visit_str(&mut self, value: &str) -> io::Result<()> {
-        if self.is_mapping_key {
+        if self.is_complex_key {
             panic!("TODO: complex keys")
         } else {
             let str_opts = 
@@ -552,9 +563,9 @@ impl<W, D> ser::Serializer for Serializer<W, D>
         }
         self.first_structure_elt = false;
 
-        self.is_mapping_key = true;
+        self.ser_mapping_key = true;
         try!(key.serialize(self));
-        self.is_mapping_key = false;
+        self.ser_mapping_key = false;
         try!(self.colon());
         value.serialize(self)
     }
