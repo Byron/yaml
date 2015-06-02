@@ -192,3 +192,13 @@ fn mapping_complex_keys_auto_explicit_entry() {
     // some sort of YAML::Value, which we simly don't have right now.
     panic!("We are currently unable to enforce using eplicit mapping entries for complex keys")
 }
+
+#[test]
+fn json_auto_escape() {
+    let opts = PresentationDetails::json();
+
+    for &(source, want) in &[("a", r#""a""#),
+                             ("\u{85}", r#""\u0085""#),] {
+        assert_eq!(yaml::to_string_with_options(&source, &opts).unwrap(), want);
+    }
+}
