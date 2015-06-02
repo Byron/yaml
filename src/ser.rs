@@ -12,6 +12,9 @@ static YAML_ESCAPE_FORMAT: EscapeFormat = EscapeFormat::YAML;
 static FLOW_DOUBLE_QUOTE: FlowScalarStyle = FlowScalarStyle::DoubleQuote(EscapeFormat::YAML);
 static FLOW_SINGLE_QUOTE: FlowScalarStyle = FlowScalarStyle::SingleQuote;
 
+const DOCUMENT_START: &'static [u8] = b"---";
+const DOCUMENT_END: &'static [u8] = b"...";
+
 /// The only allowed indentation character
 const INDENT: &'static [u8] = b" ";
 
@@ -245,7 +248,8 @@ impl<W, D> Serializer<W, D>
                 // Therefore we can put a space here by default, as values will not 
                 // take care of that
                 self.is_empty_document = false;
-                encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, b"---")
+                encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, 
+                             DOCUMENT_START)
             },
             None => Ok(()),
         }
@@ -257,7 +261,8 @@ impl<W, D> Serializer<W, D>
             Some(DocumentIndicatorStyle::StartEnd(_)) => {
                     try!(encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding,
                                       &self.opts.borrow().format.line_break));
-                    encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, b"...")
+                    encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding,
+                                 DOCUMENT_END)
                 },
             _ => Ok(())
         }
@@ -737,6 +742,25 @@ fn encode_str<W, B>(writer: &mut W, encoding: &Encoding, chars: B) -> io::Result
 /// from `src` which requires the given style.
 /// Please note that the string in dst may also be folded, and thus increase in length, even if 
 /// None is returned.
+///
+/// TODO(ST): we currently don't handle non-printable characters as I have no idea how to properly
+/// figure the out ... libyaml code is based on bytes and encodings, pyyaml on regex.
+/// 
+/// ```
+/// buf.clear();
+/// if c < '\u{10000}' {
+///     fmt::write(&mut buf, format_args!("\\u{:04x}", c as u32))
+///          .unwrap();
+/// } else {
+///     // use surrogate pair ??
+///     // py:
+///     // n -= 0x10000
+///     // s1 = 0xd800 | ((n >> 10) & 0x3ff)
+///     // s2 = 0xdc00 | (n & 0x3ff)
+///     // return '\\u{0:04x}\\u{1:04x}'.format(s1, s2)
+/// }
+/// buf.as_ref()
+/// ```
 fn escape_str_and_fold(src: &str, dst: &mut String, max_fold_width: usize, 
                        in_style: &FlowScalarStyle) -> Option<&'static FlowScalarStyle>
 {
@@ -747,28 +771,73 @@ fn escape_str_and_fold(src: &str, dst: &mut String, max_fold_width: usize,
     let mut style = None;
     let mut start = 0;
 
-    let (escape_format, is_double_quoted) = 
-        match *in_style {
-            FlowScalarStyle::DoubleQuote(ref escape_format) => {
-                (escape_format, false)
-            }
-            _ => (&YAML_ESCAPE_FORMAT, true)
-        };
+    let (escape_format, is_double_quoted) = match *in_style {
+        FlowScalarStyle::DoubleQuote(ref escape_format) => {
+            (escape_format, true)
+        },
+        FlowScalarStyle::SingleQuote => (&YAML_ESCAPE_FORMAT, false),
+        FlowScalarStyle::Plain => {
+            // Figure out if the string can be represented with the plain flow-style
+            // Note that we don't have to care if it's already double-quote, as these strings 
+            // can represent everything
+            style = Some(&FLOW_SINGLE_QUOTE);
 
-    // Figure out if the string can be represented with the given flow-style.
-    // Note that we don't have to care if it's already double-quote, as these strings 
-    // can represent everything
-    if !is_double_quoted {
+           'outer: 
+            loop {
+                if src.len() == 0 {
+                    break;
+                }
+                // Check document start/end
+                if src.len() > 2 {
+                    if src.as_bytes()[..3] == *DOCUMENT_START ||
+                       src.as_bytes()[..3] == *DOCUMENT_END {
+                        break;
+                   }
+                }
 
-    }
+                // means we don't start with whitespace
+                let mut last_ws_char = usize::max_value();
+                for (i, chr) in src.chars().enumerate() {
+                    if i == 0 {
+                        // start with whitespace ...
+                        if chr.is_whitespace() {
+                            break 'outer;
+                        }
+                        // or with a reserved character
+                        match chr {
+                              '#'|','|'['|']'|'{'|'}'|'&'|'*'
+                             |'!'|'|'|'>'|'"'|'%'|'@'|'`'
+                             |'?'|':'|'-' => {
+                                break 'outer;
+                             },
+                             _ => (),
+                        }
+                    } else if chr.is_whitespace() {
+                        last_ws_char = i;
+                    }
+                }// char loop
+
+                if last_ws_char == src.len() - 1 {
+                    break;
+                }
+
+                // We have found no reason to elevate the style from plain mode
+                style = None;
+                break;
+            }// end breakout loop
+
+            (&YAML_ESCAPE_FORMAT, false)
+        },
+    };
 
 
     match *escape_format {
         EscapeFormat::YAML => {
-            for (i, byte) in src.chars().enumerate() {
+            for (i, chr) in src.char_indices() {
                 let escaped = 
-                    match byte {
+                    match chr {
                         '"' => "\\\"",
+                        '\'' => "'",
                         '\\' => "\\\\",
                         '\x00' => "\\0",
                         '\x01' => "\\x01",
@@ -819,14 +888,15 @@ fn escape_str_and_fold(src: &str, dst: &mut String, max_fold_width: usize,
                 }
                 dst.write_str(escaped).unwrap();
 
-                start = i + 1;
+                start = i + chr.len_utf8();
             }
         },// end YAML
         EscapeFormat::JSON => {
-            for (i, byte) in src.chars().enumerate() {
+            for (i, chr) in src.char_indices() {
                 let escaped = 
-                    match byte {
+                    match chr {
                         '"' => "\\\"",
+                        '\'' => "'",
                         '\\' => "\\\\",
                         '\x00' => "\\u0000",
                         '\x01' => "\\u0001",
@@ -861,6 +931,10 @@ fn escape_str_and_fold(src: &str, dst: &mut String, max_fold_width: usize,
                         '\x1e' => "\\u001e",
                         '\x1f' => "\\u001f",
                         '\x7f' => "\\u007f",
+                        '\u{a0}' => "\\u00a0",
+                        '\u{85}' => "\\u0085",
+                        '\u{2028}' => "\\u2028",
+                        '\u{2029}' => "\\u2029",
                         _ => { continue; }
                     };
 
@@ -873,7 +947,7 @@ fn escape_str_and_fold(src: &str, dst: &mut String, max_fold_width: usize,
                 }
                 dst.write_str(escaped).unwrap();
 
-                start = i + 1;
+                start = i + chr.len_utf8();
             }
         }// END JSON
     }

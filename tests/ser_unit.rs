@@ -198,10 +198,19 @@ fn json_yaml_auto_escape() {
     let json_opts = PresentationDetails::json();
     let yaml_opts = PresentationDetails::yaml();
 
-    for &(source, want_json, want_yaml) in &[("a",      r#""a""#,           "a"),
+    for &(source, want_json, want_yaml) in  [
+                                             ("a",      r#""a""#,           "a"),
+                                             ("",       r#""""#,            "''"),
+                                             ("---",    r#""---""#,         "'---'"),
+                                             ("...",    r#""...""#,         "'...'"),
                                              (" ",      r#"" ""#,           r#"' '"#),
                                              ("\\",     r#""\\""#,          r#""\\""#),
                                              ("\"",     r#""\"""#,          r#""\"""#),
+                                             // just one of many special characters
+                                             ("#",      r##""#""##,           "'#'"),
+            // '''' would be OK for yaml, but requires a full pre-pass on the string 
+            // which we don't do !
+                                             ("'",      r#""'""#,           r#""'""#),
                                              ("\x00",   r#""\u0000""#,      r#""\0""#),
                                              ("\x01",   r#""\u0001""#,      r#""\x01""#),
                                              ("\x02",   r#""\u0002""#,      r#""\x02""#),
@@ -229,8 +238,9 @@ fn json_yaml_auto_escape() {
                                              ("  foo", r#""  foo""#,      r#"'  foo'"#),
                                              ("foo  ", r#""foo  ""#,      r#"'foo  '"#),
                                              ("foo  bar", r#""foo  bar""#,      r#"foo  bar"#),
+                                             ("foo'bar", r#""foo'bar""#,      r#""foo'bar""#),
                                              ("\nfoo", r#""\nfoo""#,      r#""\nfoo""#),
-                                             ] {
+                                             ].iter() {
         assert_eq!(yaml::to_string_with_options(&source, &json_opts).unwrap(), want_json);
         assert_eq!(yaml::to_string_with_options(&source, &yaml_opts).unwrap(), want_yaml);
     }
