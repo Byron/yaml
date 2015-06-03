@@ -11,8 +11,8 @@ static YAML_ESCAPE_FORMAT: EscapeFormat = EscapeFormat::YAML;
 static FLOW_DOUBLE_QUOTE: FlowScalarStyle = FlowScalarStyle::DoubleQuote(EscapeFormat::YAML);
 static FLOW_SINGLE_QUOTE: FlowScalarStyle = FlowScalarStyle::SingleQuote;
 
-const DOCUMENT_START: &'static [u8] = b"---";
-const DOCUMENT_END: &'static [u8] = b"...";
+const DOCUMENT_START: &'static str = "---";
+const DOCUMENT_END: &'static str = "...";
 
 /// The only allowed indentation character
 const INDENT: &'static [u8] = b" ";
@@ -130,7 +130,7 @@ impl<W, D> Serializer<W, D>
         self.current_indent += 1;
         self.first_structure_elt = true;
         let mut line_remains_empty = false;
-        let open_ascii: &[u8] = 
+        let open_ascii: &str = 
             match kind {
                 StructureKind::Sequence => {
                     match self.flow_style_or(&self.opts.borrow().sequence_details.style) {
@@ -138,7 +138,7 @@ impl<W, D> Serializer<W, D>
                         StructureStyle::Block => {
                             line_remains_empty = true;
                             if self.is_empty_line { 
-                                b""
+                                ""
                             } else {
                                 self.opts.borrow().format.line_break.as_ref()
                             }
@@ -146,9 +146,9 @@ impl<W, D> Serializer<W, D>
                         StructureStyle::Flow => {
                             self.open_structs_in_flow_style += 1;
                             if self.is_empty_line {
-                                b"["
+                                "["
                             } else {
-                                b" ["
+                                " ["
                             }
                         }
                     }
@@ -159,7 +159,7 @@ impl<W, D> Serializer<W, D>
                         StructureStyle::Block => {
                             line_remains_empty = true;
                             if self.is_empty_line { 
-                                b""
+                                ""
                             } else {
                                 self.opts.borrow().format.line_break.as_ref()
                             }
@@ -167,9 +167,9 @@ impl<W, D> Serializer<W, D>
                         StructureStyle::Flow => {
                             self.open_structs_in_flow_style += 1;
                             if self.is_empty_line {
-                                b"{"
+                                "{"
                             } else {
-                                b" {"
+                                " {"
                             }
                         }
                     }
@@ -177,12 +177,12 @@ impl<W, D> Serializer<W, D>
             };
 
         self.is_empty_line = line_remains_empty;
-        encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, open_ascii)
+        encode_str(&mut self.writer, &self.opts.borrow().format.encoding, open_ascii)
     }
 
     fn emit_newline(&mut self) -> io::Result<()> {
         self.is_empty_line = true;
-        encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, 
+        encode_str(&mut self.writer, &self.opts.borrow().format.encoding, 
                      &self.opts.borrow().format.line_break)
     }
 
@@ -213,7 +213,7 @@ impl<W, D> Serializer<W, D>
             },
             StructureStyle::Flow => {
                 self.is_empty_line = false;
-                encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, b",")
+                encode_str(&mut self.writer, &self.opts.borrow().format.encoding, ",")
             }
         }
     }
@@ -221,7 +221,7 @@ impl<W, D> Serializer<W, D>
     fn colon(&mut self) -> io::Result<()>
     {
         self.is_empty_line = false;
-        encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, b":")
+        encode_str(&mut self.writer, &self.opts.borrow().format.encoding, ":")
     }
 
     fn close(&mut self, kind: StructureKind) -> io::Result<()>
@@ -237,29 +237,29 @@ impl<W, D> Serializer<W, D>
         // try!(indent(&mut self.writer, self.current_indent * 
         //                  self.opts.borrow().format.spaces_per_indentation_level));
 
-        let close_ascii: &[u8] = 
+        let close_ascii: &str = 
             match kind {
                 StructureKind::Sequence => {
                     match self.flow_style_or(&self.opts.borrow().sequence_details.style) {
-                        StructureStyle::Block => b"",
+                        StructureStyle::Block => "",
                         StructureStyle::Flow => {
                             self.open_structs_in_flow_style -= 1;
-                            b" ]"
+                            " ]"
                         },
                     }
                 },
                 StructureKind::Mapping => {
                     match self.flow_style_or(&self.opts.borrow().mapping_details.details.style) {
-                        StructureStyle::Block => b"",
+                        StructureStyle::Block => "",
                         StructureStyle::Flow => {
                             self.open_structs_in_flow_style -= 1;
-                            b" }"
+                            " }"
                         },
                     }
                 }
             };
 
-        encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, close_ascii)
+        encode_str(&mut self.writer, &self.opts.borrow().format.encoding, close_ascii)
     }
 
     /// Must be called once when starting to serialize any amount of documents.
@@ -295,7 +295,7 @@ impl<W, D> Serializer<W, D>
                 try!(
                     match *yaml_directive {
                         Some(ref yaml_directive) => {
-                            try!(encode_ascii(&mut self.writer, 
+                            try!(encode_str(&mut self.writer, 
                                               &self.opts.borrow().format.encoding,
                                               yaml_directive));
                             // need line-break after version directive
@@ -308,7 +308,7 @@ impl<W, D> Serializer<W, D>
                 // Therefore we can put a space here by default, as values will not 
                 // take care of that
                 self.is_empty_line = false;
-                encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, 
+                encode_str(&mut self.writer, &self.opts.borrow().format.encoding, 
                              DOCUMENT_START)
             },
             None => Ok(()),
@@ -329,7 +329,7 @@ impl<W, D> Serializer<W, D>
             Some(DocumentIndicatorStyle::StartEnd(_)) => {
                     self.is_empty_line = true;
                     try!(self.emit_newline());
-                    encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding,
+                    encode_str(&mut self.writer, &self.opts.borrow().format.encoding,
                                  DOCUMENT_END)
                 },
             _ => Ok(())
@@ -359,9 +359,9 @@ impl<W, D> Serializer<W, D>
 
         if opts.explicit_tag {
             if !self.is_empty_line {
-                try!(encode_ascii(&mut self.writer, encoding, b" "));
+                try!(encode_str(&mut self.writer, encoding, " "));
             }
-            try!(encode_ascii(&mut self.writer, encoding, tag.as_ref()));
+            try!(encode_str(&mut self.writer, encoding, tag.as_ref()));
             self.is_empty_line = false;
         }
 
@@ -390,11 +390,11 @@ impl<W, D> Serializer<W, D>
                     };
 
                 if !is_empty_line {
-                    try!(encode_ascii(&mut self.writer, encoding, b" "));
+                    try!(encode_str(&mut self.writer, encoding, " "));
                 }
-                try!(encode_ascii(&mut self.writer, encoding, flow_style));
+                try!(encode_str(&mut self.writer, encoding, flow_style));
                 try!(encode_str(&mut self.writer, encoding, str_slice));
-                encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, flow_style)
+                encode_str(&mut self.writer, &self.opts.borrow().format.encoding, flow_style)
             },
         }
     }
@@ -584,9 +584,9 @@ impl<W, D> ser::Serializer for Serializer<W, D>
     {
         match visitor.len() {
             Some(len) if len == 0 => {
-                encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, 
-                             if self.is_empty_line { &b"[]"[..] }
-                             else { &b" []"[..]})
+                encode_str(&mut self.writer, &self.opts.borrow().format.encoding, 
+                             if self.is_empty_line { &"[]"[..] }
+                             else { &" []"[..]})
             }
             _ => {
                 try!(self.open(StructureKind::Sequence));
@@ -624,7 +624,7 @@ impl<W, D> ser::Serializer for Serializer<W, D>
 
         if let StructureStyle::Block = self.flow_style_or(&self.opts.borrow()
                                                                     .sequence_details.style) {
-            try!(encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, b"-"));
+            try!(encode_str(&mut self.writer, &self.opts.borrow().format.encoding, "-"));
             self.is_empty_line = false;
         }
 
@@ -636,9 +636,9 @@ impl<W, D> ser::Serializer for Serializer<W, D>
     {
         match visitor.len() {
             Some(len) if len == 0 => {
-                encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, 
-                             if self.is_empty_line { &b"{}"[..] }
-                             else { &b" {}"[..]})
+                encode_str(&mut self.writer, &self.opts.borrow().format.encoding, 
+                             if self.is_empty_line { &"{}"[..] }
+                             else { &" {}"[..]})
             }
             _ => {
                 try!(self.open(StructureKind::Mapping));
@@ -679,9 +679,9 @@ impl<W, D> ser::Serializer for Serializer<W, D>
         if explicit_entries {
             let encoding = &self.opts.borrow().format.encoding;
             if !self.is_empty_line {
-                try!(encode_ascii(&mut self.writer, encoding, b" "));
+                try!(encode_str(&mut self.writer, encoding, " "));
             }
-            try!(encode_ascii(&mut self.writer, encoding, b"?"));
+            try!(encode_str(&mut self.writer, encoding, "?"));
             self.is_empty_line = false;
         }
 
@@ -701,48 +701,6 @@ impl<W, D> ser::Serializer for Serializer<W, D>
     fn format() -> &'static str {
         "yaml"
     }
-}
-
-fn escape_bytes<W>(wr: &mut W, bytes: &[u8]) -> io::Result<()>
-    where W: io::Write
-{
-    try!(wr.write_all(b"\""));
-
-    let mut start = 0;
-
-    for (i, byte) in bytes.iter().enumerate() {
-        let escaped = match *byte {
-            b'"' => b"\\\"",
-            b'\\' => b"\\\\",
-            b'\x08' => b"\\b",
-            b'\x0c' => b"\\f",
-            b'\n' => b"\\n",
-            b'\r' => b"\\r",
-            b'\t' => b"\\t",
-            _ => { continue; }
-        };
-
-        if start < i {
-            try!(wr.write_all(&bytes[start..i]));
-        }
-
-        try!(wr.write_all(escaped));
-
-        start = i + 1;
-    }
-
-    if start != bytes.len() {
-        try!(wr.write_all(&bytes[start..]));
-    }
-
-    try!(wr.write_all(b"\""));
-    Ok(())
-}
-
-fn escape_str<W>(wr: &mut W, value: &str) -> io::Result<()>
-    where W: io::Write
-{
-    escape_bytes(wr, value.as_bytes())
 }
 
 /// Encode the specified struct into a YAML `[u8]` writer.
@@ -823,20 +781,6 @@ fn indent<W>(wr: &mut W, n: usize) -> io::Result<()>
     Ok(())
 }
 
-fn encode_ascii<W, B>(writer: &mut W, encoding: &Encoding, chars: B) -> io::Result<()> 
-    where W: io::Write,
-          B: AsRef<[u8]>
-{
-    if chars.as_ref().len() == 0 {
-        return Ok(())
-    }
-    
-    match *encoding {
-        // ASCII is a valid subset of UTF8, and can thus be written directly
-        Encoding::Utf8(_) => writer.write_all(chars.as_ref()),
-    }
-}
-
 fn encode_str<W, B>(writer: &mut W, encoding: &Encoding, chars: B) -> io::Result<()> 
     where W: io::Write,
           B: AsRef<str>
@@ -887,8 +831,8 @@ fn escape_str_and_fold(src: &str, dst: &mut String, max_fold_width: usize,
                 }
                 // Check document start/end
                 if src.len() > 2 {
-                    if src.as_bytes()[..3] == *DOCUMENT_START ||
-                       src.as_bytes()[..3] == *DOCUMENT_END {
+                    if src.as_bytes()[..3] == *DOCUMENT_START.as_bytes() ||
+                       src.as_bytes()[..3] == *DOCUMENT_END.as_bytes() {
                         break;
                    }
                 }
@@ -1158,12 +1102,12 @@ pub enum FlowScalarStyle {
 
 }
 
-impl AsRef<[u8]> for FlowScalarStyle {
-    fn as_ref(&self) -> &[u8] {
+impl AsRef<str> for FlowScalarStyle {
+    fn as_ref(&self) -> &str {
         match *self {
-            FlowScalarStyle::Plain => b"",
-            FlowScalarStyle::SingleQuote => b"'",
-            FlowScalarStyle::DoubleQuote(_) => b"\""
+            FlowScalarStyle::Plain => "",
+            FlowScalarStyle::SingleQuote => "'",
+            FlowScalarStyle::DoubleQuote(_) => "\""
         }
     }
 }
@@ -1216,7 +1160,7 @@ pub enum Encoding {
 }
 
 impl AsRef<[u8]> for Encoding {
-    /// Convert ourselves to the ByteOrderMark, or b"" if there is no BOM
+    /// Convert ourselves to the ByteOrderMark, or "" if there is no BOM
     fn as_ref(&self) -> &[u8] {
         match *self {
             Encoding::Utf8(Some(_)) 
@@ -1245,16 +1189,16 @@ pub enum Tag {
     Seq,
 }
 
-impl AsRef<[u8]> for Tag {
-    fn as_ref(&self) -> &[u8] {
+impl AsRef<str> for Tag {
+    fn as_ref(&self) -> &str {
         match *self {
-            Tag::Null => b"!!null",
-            Tag::Bool => b"!!bool",
-            Tag::Int => b"!!int",
-            Tag::Float => b"!!float",
-            Tag::Str  => b"!!str",
-            Tag::Map  => b"!!map",
-            Tag::Seq  => b"!!seq",
+            Tag::Null => "!!null",
+            Tag::Bool => "!!bool",
+            Tag::Int => "!!int",
+            Tag::Float => "!!float",
+            Tag::Str  => "!!str",
+            Tag::Map  => "!!map",
+            Tag::Seq  => "!!seq",
         }
     }
 }
@@ -1320,9 +1264,9 @@ pub struct ScalarDetails {
 #[derive(Debug, PartialEq, Clone)]
 pub struct YamlVersionDirective;
 
-impl AsRef<[u8]> for YamlVersionDirective {
-    fn as_ref(&self) -> &[u8] {
-        b"%YAML 1.2"
+impl AsRef<str> for YamlVersionDirective {
+    fn as_ref(&self) -> &str {
+        "%YAML 1.2"
     }
 }
 
@@ -1356,16 +1300,6 @@ pub enum LineBreak {
 impl Default for LineBreak {
     fn default() -> Self {
         LineBreak::LineFeed
-    }
-}
-
-impl AsRef<[u8]> for LineBreak {
-    fn as_ref(&self) -> &[u8] {
-        match *self {
-            LineBreak::LineFeed => b"\n",
-            LineBreak::CarriageReturn => b"\r",
-            LineBreak::CarriageReturnPlusLineFeed => b"\r\n",
-        }
     }
 }
 
