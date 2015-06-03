@@ -317,6 +317,35 @@ impl<W, D> Serializer<W, D>
             try!(encode_ascii(&mut self.writer, encoding, tag.as_ref()));
         }
 
+        let is_value = !self.ser_mapping_key;
+
+        // true if the scalar is prefix with a control character, like flow-mode, comma, dash ...
+        // REVIEW(ST): logic is difficult to follow, would be good to just keep state about the 
+        // last token type written (i.e. control character/sequence)
+        let has_leading_control_character = if self.is_empty_document {
+            false
+        } else {
+            match self.stack.last() {
+                Some(kind) => {
+                    // everything in flow mode as leading control characters
+                    // in block mode, a mapping with implicit entries has none ... .
+                    match *kind {
+                        StructureKind::Sequence => true,
+                        StructureKind::Mapping => {
+                            match self.flow_style_or(&self.opts.borrow().mapping_details
+                                                                        .details.style) {
+                                StructureStyle::Block => is_value || self.opts.borrow()
+                                                                           .mapping_details
+                                                                           .explicit_entries,
+                                StructureStyle::Flow => true,
+                            }
+                        }
+                    }
+                },
+                None => true,
+            }
+        };
+
         match opts.style {
             ScalarStyle::Block(_) => panic!("TODO"),
             ScalarStyle::Flow(ref width, ref flow_style) => {
@@ -338,7 +367,7 @@ impl<W, D> Serializer<W, D>
                         (flow_style, chars.as_ref())
                     };
 
-                if !self.is_empty_document {
+                if has_leading_control_character {
                     // no need to change is_empty_document if we are a single scalar value
                     // within it
                     try!(encode_ascii(&mut self.writer, encoding, b" "));

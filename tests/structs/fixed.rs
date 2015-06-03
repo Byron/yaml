@@ -1923,7 +1923,7 @@ impl ::serde::ser::Serialize for SingleOptKey {
     }
 }
 pub struct DualOptKey {
-    pub key1: Option<Vec<u32>>,
+    pub key1: Option<Vec<Option<u32>>>,
     pub key2: Option<u32>,
 }
 #[automatically_derived]
