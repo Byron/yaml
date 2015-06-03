@@ -298,3 +298,26 @@ fn json_yaml_auto_escape() {
         assert_eq!(yaml::to_string_with_options(&source, &yaml_opts).unwrap(), want_yaml);
     }
 }
+
+#[test]
+fn multi_document() {
+    use serde::ser::Serialize;
+
+    // as ser::Serialize is not object save, we cannot provide an abstract implementation of it 
+    // (e.g. an iterator of &ser::Serialize). Thus it must be implemented manually
+    let mut opts = PresentationDetails::yaml();
+    opts.document_indicator_style = Some(DocumentIndicatorStyle::StartEnd(None));
+
+    let writer = Vec::with_capacity(128);
+    let mut ser = yaml::ser::Serializer::with_options(writer, opts);
+
+    ser.begin_stream().unwrap();
+    ser.begin_document().unwrap();
+    "value".serialize(&mut ser).unwrap();
+    ser.end_document().unwrap();
+    ser.begin_document().unwrap();
+    4.serialize(&mut ser).unwrap();
+    ser.end_document().unwrap();
+
+    assert_eq!(&String::from_utf8(ser.into_inner()).unwrap(), "--- value\n...\n--- 4\n...");
+}

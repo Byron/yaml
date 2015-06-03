@@ -1,5 +1,4 @@
 use std::io;
-use std::num::FpCategory;
 use std::string::FromUtf8Error;
 use std::borrow::Borrow;
 use std::fmt;
@@ -27,6 +26,15 @@ enum StructureKind {
     Mapping,
 }
 
+/// Primary state of the serializer to help assure proper call order
+#[derive(Debug)]
+enum State {
+    Blank,
+    InStream,
+    InDocument,
+    OutDocument,
+}
+
 /// A receiver for serialization events which are translated into a stream of characters, 
 /// destined to serialize value types.
 pub struct Serializer<W, D = Borrow<PresentationDetails>> 
@@ -39,6 +47,8 @@ pub struct Serializer<W, D = Borrow<PresentationDetails>>
     buf: String,
     open_structs_in_flow_style: usize,
     stack: Vec<StructureKind>,
+
+    state: State,
 
     /// used to signify if we should print a comma when we are walking through a
     /// sequence.
@@ -88,6 +98,7 @@ impl<W, D> Serializer<W, D>
             is_complex_key: false,
             stack: Vec::with_capacity(10),
             open_structs_in_flow_style: 0,
+            state: State::Blank,
         }
     }
 
@@ -252,12 +263,30 @@ impl<W, D> Serializer<W, D>
     }
 
     /// Must be called once when starting to serialize any amount of documents.
-    fn begin_stream(&mut self) -> io::Result<()> {
+    /// 
+    /// **NOTE:** Failing to do so will cause a runtime panic.
+    pub fn begin_stream(&mut self) -> io::Result<()> {
+        match self.state {
+            State::Blank => self.state = State::InStream,
+            _ => panic!("Must be in blank state, found {:?}", self.state)
+        }
+        
         self.writer.write_all(self.opts.borrow().format.encoding.as_ref())
     }
 
-    /// Must be called once before starting a new document.
-    fn begin_document(&mut self) -> io::Result<()> {
+    /// Must be called once before serializing any value.
+    ///
+    /// **NOTE:** Failing to do so will cause a runtime panic.
+    pub fn begin_document(&mut self) -> io::Result<()> {
+        match self.state {
+            State::InStream => self.state = State::InDocument,
+            State::OutDocument => {
+                try!(self.emit_newline());
+                self.state = State::InDocument;
+            },
+            _ => panic!("Must be in stream state, found {:?}", self.state)
+        }
+
         match self.opts.borrow().document_indicator_style.clone() {
              Some(DocumentIndicatorStyle::Start(ref yaml_directive))
             |Some(DocumentIndicatorStyle::StartEnd(ref yaml_directive)) => {
@@ -287,7 +316,15 @@ impl<W, D> Serializer<W, D>
     }
 
     /// The sibling of `begin_document()`, which must be called exactly once.
-    fn end_document(&mut self) -> io::Result<()> {
+    ///
+    /// **NOTE:** Failing to do so will cause a runtime panic on the next call to 
+    /// `begin_document()`
+    pub fn end_document(&mut self) -> io::Result<()> {
+        match self.state {
+            State::InDocument => self.state = State::OutDocument,
+            _ => panic!("Must be in stream state, found {:?}", self.state)
+        }
+
         match self.opts.borrow().document_indicator_style {
             Some(DocumentIndicatorStyle::StartEnd(_)) => {
                     self.is_empty_line = true;
@@ -328,7 +365,6 @@ impl<W, D> Serializer<W, D>
             self.is_empty_line = false;
         }
 
-        let is_value = !self.is_mapping_key;
         // just to make setting it easier
         let is_empty_line = self.is_empty_line;
         self.is_empty_line = false;
@@ -384,6 +420,7 @@ impl<W, D> Serializer<W, D>
         //! regarding float parsing and serialization, and we might be fine with the
         //! standard fmt::Display if we are lucky
         // For reference
+        // use std::num::FpCategory;
         // match value.classify() {
         //     FpCategory::Nan | FpCategory::Infinite => wr.write_all(b"null"),
         //     _ => {
