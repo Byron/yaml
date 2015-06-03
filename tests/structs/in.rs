@@ -258,6 +258,6 @@ pub struct SingleOptKey {
 
 #[derive(Serialize, Deserialize)]
 pub struct DualOptKey {
-    pub key1: Option<u32>,
+    pub key1: Option<Vec<u32>>,
     pub key2: Option<u32>,
 }

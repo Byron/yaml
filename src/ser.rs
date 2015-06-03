@@ -12,8 +12,6 @@ static YAML_ESCAPE_FORMAT: EscapeFormat = EscapeFormat::YAML;
 static FLOW_DOUBLE_QUOTE: FlowScalarStyle = FlowScalarStyle::DoubleQuote(EscapeFormat::YAML);
 static FLOW_SINGLE_QUOTE: FlowScalarStyle = FlowScalarStyle::SingleQuote;
 
-static NULL_STYLE_SHOW: NullScalarStyle = NullScalarStyle::Show;
-
 const DOCUMENT_START: &'static [u8] = b"---";
 const DOCUMENT_END: &'static [u8] = b"...";
 
@@ -35,10 +33,12 @@ pub struct Serializer<W, D = Borrow<PresentationDetails>>
     where D: Borrow<PresentationDetails>
 {
     writer: W,
+    // TODO(ST): this information is equivalent to stack.len() ... .
     current_indent: usize,
     opts: D,
     buf: String,
     open_structs_in_flow_style: usize,
+    stack: Vec<StructureKind>,
 
     /// used to signify if we should print a comma when we are walking through a
     /// sequence.
@@ -86,6 +86,7 @@ impl<W, D> Serializer<W, D>
             is_empty_document: true,
             ser_mapping_key: false,
             is_complex_key: false,
+            stack: Vec::with_capacity(10),
             open_structs_in_flow_style: 0,
         }
     }
@@ -110,6 +111,9 @@ impl<W, D> Serializer<W, D>
         if self.ser_mapping_key {
             self.is_complex_key = true;
         }
+
+        self.stack.push(kind.clone());
+
         // REVIEW(ST): consider merging these branches - they look similar
         // have to wait until internal data structures stabilize
         self.current_indent += 1;
@@ -206,6 +210,8 @@ impl<W, D> Serializer<W, D>
         }
 
         self.current_indent -= 1;
+        self.stack.pop().expect("pop() must match push()");
+
         // TODO: Actual indentation handling
         // try!(indent(&mut self.writer, self.current_indent * 
         //                  self.opts.borrow().format.spaces_per_indentation_level));
@@ -482,11 +488,14 @@ impl<W, D> ser::Serializer for Serializer<W, D>
     }
 
     fn visit_unit(&mut self) -> io::Result<()> {
-        match *if self.open_structs_in_flow_style == 0 {
-                &self.opts.borrow().mapping_details.null_style
-            } else {
-                &NULL_STYLE_SHOW
-            } {
+        let mut null_style = self.opts.borrow().mapping_details.null_style.clone();
+        if self.open_structs_in_flow_style > 0 {
+            if let Some(&StructureKind::Sequence) = self.stack.last() {
+                null_style = NullScalarStyle::Show;
+            }
+        }
+
+        match null_style {
             NullScalarStyle::HideValue
             |NullScalarStyle::HideEntry 
                 => Ok(()),

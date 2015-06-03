@@ -116,6 +116,11 @@ fn mapping_block() {
     assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), 
                "---\nkey1: null\nkey2: null\n...");
 
+    let v = DualOptKey { key1: Some(vec![1,2,3]), key2: None };
+    opts.sequence_details.style = StructureStyle::Flow;
+    assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(),
+               "---\nkey1: [ 1, 2, 3 ], key2: \n...");
+
     // hiding all null values means we end up with an empty dict, which needs 
     // to be presented in flow mode
     opts.mapping_details.null_style = NullScalarStyle::HideEntry;
