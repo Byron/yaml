@@ -84,6 +84,14 @@ fn sequence_block() {
     opts.mapping_details.null_style = NullScalarStyle::Show;
     assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "- null\n- null");
 
+    opts.scalar_value_details.explicit_tag = true;
+    assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "- !!null null\n- !!null null");
+
+    opts.document_indicator_style = Some(DocumentIndicatorStyle::Start(None));
+    assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), 
+               "---\n- !!null null\n- !!null null");
+    opts.scalar_value_details.explicit_tag = false;
+
     opts.document_indicator_style = Some(DocumentIndicatorStyle::Start(None));
     assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "---\n- null\n- null");
 
@@ -103,8 +111,15 @@ fn mapping_block() {
     // null is hidden by default
     assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "key1:\nkey2:");
 
+    opts.scalar_key_details.explicit_tag = true;
+    assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "!!str key1:\n!!str key2:");
 
     opts.document_indicator_style = Some(DocumentIndicatorStyle::Start(None));
+    assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "---\n!!str key1:\n!!str key2:");
+    opts.scalar_key_details.explicit_tag = false;
+
+
+    
     assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "---\nkey1:\nkey2:");
 
 
@@ -146,6 +161,10 @@ fn sequence_flow() {
 
     assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "[ null, null ]");
 
+    opts.scalar_value_details.explicit_tag = true;
+    assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "[ !!null null, !!null null ]");
+    opts.scalar_value_details.explicit_tag = false;
+
     // flow mode enforce flow mode for all nested structures
     // hiding of null values is done if possible, no matter what
     let v = &[Option::None::<structs::SingleOptKey>, Some(SingleOptKey { key: None })];
@@ -162,6 +181,15 @@ fn mapping_flow() {
     // null is hidden by default
     assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "{ key1:, key2: }");
 
+
+    opts.scalar_key_details.explicit_tag = true;
+    assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "{ !!str key1:, !!str key2: }");
+
+    // null values will not show up even if explicit tags are on if they are hidden
+    opts.scalar_value_details.explicit_tag = true;
+    assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "{ !!str key1:, !!str key2: }");
+    opts.scalar_value_details.explicit_tag = false;
+    opts.scalar_key_details.explicit_tag = false;
 
     opts.document_indicator_style = Some(DocumentIndicatorStyle::Start(None));
     assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "--- { key1:, key2: }");

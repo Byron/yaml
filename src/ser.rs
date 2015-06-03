@@ -47,10 +47,10 @@ pub struct Serializer<W, D = Borrow<PresentationDetails>>
     /// Signals that we still have to serialize something - there was no call to anything
     /// that would fill the document yet. It's used to help putting a first linebreak only 
     /// if needed
-    is_empty_document: bool,
+    is_empty_line: bool,
 
     /// true while we are serializing a mapping key
-    ser_mapping_key: bool,
+    is_mapping_key: bool,
 
     /// While true, we signal that all serialized values are going to be part of a mapping key
     /// If the key is not simple enough, the mapping style may be forced to be either an 
@@ -83,8 +83,8 @@ impl<W, D> Serializer<W, D>
             opts: options,
             buf: String::with_capacity(128),
             first_structure_elt: false,
-            is_empty_document: true,
-            ser_mapping_key: false,
+            is_empty_line: true,
+            is_mapping_key: false,
             is_complex_key: false,
             stack: Vec::with_capacity(10),
             open_structs_in_flow_style: 0,
@@ -108,7 +108,7 @@ impl<W, D> Serializer<W, D>
 
     fn open(&mut self, kind: StructureKind) -> io::Result<()>
     {
-        if self.ser_mapping_key {
+        if self.is_mapping_key {
             self.is_complex_key = true;
         }
 
@@ -118,13 +118,15 @@ impl<W, D> Serializer<W, D>
         // have to wait until internal data structures stabilize
         self.current_indent += 1;
         self.first_structure_elt = true;
+        let mut line_remains_empty = false;
         let open_ascii: &[u8] = 
             match kind {
                 StructureKind::Sequence => {
                     match self.flow_style_or(&self.opts.borrow().sequence_details.style) {
                         // In block mode, we always start on a new line
                         StructureStyle::Block => {
-                            if self.is_empty_document { 
+                            line_remains_empty = true;
+                            if self.is_empty_line { 
                                 b""
                             } else {
                                 self.opts.borrow().format.line_break.as_ref()
@@ -132,7 +134,7 @@ impl<W, D> Serializer<W, D>
                         },
                         StructureStyle::Flow => {
                             self.open_structs_in_flow_style += 1;
-                            if self.is_empty_document {
+                            if self.is_empty_line {
                                 b"["
                             } else {
                                 b" ["
@@ -144,7 +146,8 @@ impl<W, D> Serializer<W, D>
                     match self.flow_style_or(&self.opts.borrow().mapping_details.details.style) {
                         // In block mode, we always start on a new line
                         StructureStyle::Block => {
-                            if self.is_empty_document { 
+                            line_remains_empty = true;
+                            if self.is_empty_line { 
                                 b""
                             } else {
                                 self.opts.borrow().format.line_break.as_ref()
@@ -152,7 +155,7 @@ impl<W, D> Serializer<W, D>
                         },
                         StructureStyle::Flow => {
                             self.open_structs_in_flow_style += 1;
-                            if self.is_empty_document {
+                            if self.is_empty_line {
                                 b"{"
                             } else {
                                 b" {"
@@ -162,7 +165,7 @@ impl<W, D> Serializer<W, D>
                 }
             };
 
-        self.is_empty_document = false;
+        self.is_empty_line = line_remains_empty;
         encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, open_ascii)
     }
 
@@ -186,6 +189,7 @@ impl<W, D> Serializer<W, D>
 
         match style {
             StructureStyle::Block => {
+                self.is_empty_line = true;
                 encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, 
                              &self.opts.borrow().format.line_break)
                 // TODO: Actual indentation handling ... this is still from JSON
@@ -193,6 +197,7 @@ impl<W, D> Serializer<W, D>
                 //        self.opts.borrow().format.spaces_per_indentation_level)
             },
             StructureStyle::Flow => {
+                self.is_empty_line = false;
                 encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, b",")
             }
         }
@@ -200,12 +205,13 @@ impl<W, D> Serializer<W, D>
 
     fn colon(&mut self) -> io::Result<()>
     {
+        self.is_empty_line = false;
         encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, b":")
     }
 
     fn close(&mut self, kind: StructureKind) -> io::Result<()>
     {
-        if self.ser_mapping_key {
+        if self.is_mapping_key {
             self.is_complex_key = false;
         }
 
@@ -270,7 +276,7 @@ impl<W, D> Serializer<W, D>
                 // We may assume that if called, there is at least one value coming.
                 // Therefore we can put a space here by default, as values will not 
                 // take care of that
-                self.is_empty_document = false;
+                self.is_empty_line = false;
                 encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, 
                              DOCUMENT_START)
             },
@@ -282,6 +288,7 @@ impl<W, D> Serializer<W, D>
     fn end_document(&mut self) -> io::Result<()> {
         match self.opts.borrow().document_indicator_style {
             Some(DocumentIndicatorStyle::StartEnd(_)) => {
+                    self.is_empty_line = true;
                     try!(encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding,
                                       &self.opts.borrow().format.line_break));
                     encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding,
@@ -313,39 +320,17 @@ impl<W, D> Serializer<W, D>
             };
 
         if opts.explicit_tag {
-            try!(encode_ascii(&mut self.writer, encoding, b" "));
+            if !self.is_empty_line {
+                try!(encode_ascii(&mut self.writer, encoding, b" "));
+            }
             try!(encode_ascii(&mut self.writer, encoding, tag.as_ref()));
+            self.is_empty_line = false;
         }
 
-        let is_value = !self.ser_mapping_key;
-
-        // true if the scalar is prefix with a control character, like flow-mode, comma, dash ...
-        // REVIEW(ST): logic is difficult to follow, would be good to just keep state about the 
-        // last token type written (i.e. control character/sequence)
-        let has_leading_control_character = if self.is_empty_document {
-            false
-        } else {
-            match self.stack.last() {
-                Some(kind) => {
-                    // everything in flow mode as leading control characters
-                    // in block mode, a mapping with implicit entries has none ... .
-                    match *kind {
-                        StructureKind::Sequence => true,
-                        StructureKind::Mapping => {
-                            match self.flow_style_or(&self.opts.borrow().mapping_details
-                                                                        .details.style) {
-                                StructureStyle::Block => is_value || self.opts.borrow()
-                                                                           .mapping_details
-                                                                           .explicit_entries,
-                                StructureStyle::Flow => true,
-                            }
-                        }
-                    }
-                },
-                None => true,
-            }
-        };
-
+        let is_value = !self.is_mapping_key;
+        // just to make setting it easier
+        let is_empty_line = self.is_empty_line;
+        self.is_empty_line = false;
         match opts.style {
             ScalarStyle::Block(_) => panic!("TODO"),
             ScalarStyle::Flow(ref width, ref flow_style) => {
@@ -367,9 +352,7 @@ impl<W, D> Serializer<W, D>
                         (flow_style, chars.as_ref())
                     };
 
-                if has_leading_control_character {
-                    // no need to change is_empty_document if we are a single scalar value
-                    // within it
+                if !is_empty_line {
                     try!(encode_ascii(&mut self.writer, encoding, b" "));
                 }
                 try!(encode_ascii(&mut self.writer, encoding, flow_style));
@@ -497,10 +480,14 @@ impl<W, D> ser::Serializer for Serializer<W, D>
             panic!("TODO: complex keys")
         } else {
             let str_opts = 
-                if value.len() < self.opts.borrow().small_scalar_string_value_width_threshold {
-                    self.opts.borrow().small_scalar_string_value_details.clone()
+                if self.is_mapping_key {
+                    self.opts.borrow().scalar_key_details.clone()
                 } else {
-                    self.opts.borrow().big_scalar_string_value_details.clone()
+                    if value.len() < self.opts.borrow().small_scalar_string_value_width_threshold {
+                        self.opts.borrow().small_scalar_string_value_details.clone()
+                    } else {
+                        self.opts.borrow().big_scalar_string_value_details.clone()
+                    }
                 };
             self.encode_scalar(Tag::Str, str_opts, value)
         }
@@ -553,7 +540,7 @@ impl<W, D> ser::Serializer for Serializer<W, D>
         match visitor.len() {
             Some(len) if len == 0 => {
                 encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, 
-                             if self.is_empty_document { &b"[]"[..] }
+                             if self.is_empty_line { &b"[]"[..] }
                              else { &b" []"[..]})
             }
             _ => {
@@ -592,6 +579,7 @@ impl<W, D> ser::Serializer for Serializer<W, D>
         if let StructureStyle::Block = self.flow_style_or(&self.opts.borrow()
                                                                     .sequence_details.style) {
             try!(encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, b"-"));
+            self.is_empty_line = false;
         }
 
         value.serialize(self)
@@ -603,7 +591,7 @@ impl<W, D> ser::Serializer for Serializer<W, D>
         match visitor.len() {
             Some(len) if len == 0 => {
                 encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, 
-                             if self.is_empty_document { &b"{}"[..] }
+                             if self.is_empty_line { &b"{}"[..] }
                              else { &b" {}"[..]})
             }
             _ => {
@@ -640,9 +628,9 @@ impl<W, D> ser::Serializer for Serializer<W, D>
         }
         self.first_structure_elt = false;
 
-        self.ser_mapping_key = true;
+        self.is_mapping_key = true;
         try!(key.serialize(self));
-        self.ser_mapping_key = false;
+        self.is_mapping_key = false;
         try!(self.colon());
         value.serialize(self)
     }
