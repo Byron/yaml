@@ -691,6 +691,9 @@ pub fn to_string<T>(value: &T) -> Result<String, FromUtf8Error>
 
 /// Encode the specified struct into a YAML `String` buffer with the given 
 /// options to define how the character stream should look like.
+///
+/// *NOTE*: the encoding must be utf8 as this is the internal format
+/// of Rust strings. If it is not the case, you will get FromUtf8Error result.
 pub fn to_string_with_options<T, D>(value: &T, 
                                     options: D) -> Result<String, FromUtf8Error>
     where T: ser::Serialize,
