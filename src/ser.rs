@@ -62,11 +62,11 @@ pub struct Serializer<W, D = Borrow<PresentationDetails>>
     /// true while we are serializing a mapping key
     is_mapping_key: bool,
 
-    /// While true, we signal that all serialized values are going to be part of a mapping key
+    /// While > 0, we signal that all serialized values are going to be part of a mapping key
     /// If the key is not simple enough, the mapping style may be forced to be either an 
     /// explicit mapping entry (if key is complex), or to use non-plain flow mode as escapes might
     /// be needed.
-    is_complex_key: bool,
+    in_complex_key_depth: usize,
 }
 
 impl<W> Serializer<W, PresentationDetails>
@@ -95,7 +95,7 @@ impl<W, D> Serializer<W, D>
             first_structure_elt: false,
             is_empty_line: true,
             is_mapping_key: false,
-            is_complex_key: false,
+            in_complex_key_depth: 0,
             stack: Vec::with_capacity(10),
             open_structs_in_flow_style: 0,
             state: State::Blank,
@@ -119,8 +119,8 @@ impl<W, D> Serializer<W, D>
 
     fn open(&mut self, kind: StructureKind) -> io::Result<()>
     {
-        if self.is_mapping_key {
-            self.is_complex_key = true;
+        if self.is_mapping_key || self.in_complex_key_depth > 0 {
+            self.in_complex_key_depth += 1;
         }
 
         self.stack.push(kind.clone());
@@ -226,8 +226,8 @@ impl<W, D> Serializer<W, D>
 
     fn close(&mut self, kind: StructureKind) -> io::Result<()>
     {
-        if self.is_mapping_key {
-            self.is_complex_key = false;
+        if self.is_mapping_key || self.in_complex_key_depth > 0 {
+            self.in_complex_key_depth -= 1;
         }
 
         self.current_indent -= 1;
@@ -402,7 +402,7 @@ impl<W, D> Serializer<W, D>
     fn visit_any<T>(&mut self, tag: Tag, value: T) -> io::Result<()> 
         where T: fmt::Display
     {
-        if self.is_complex_key {
+        if self.in_complex_key_depth > 0 {
             panic!("TODO(ST): complex keys")
         } else {
             // TODO(ST): use pre-allocated buffer ! Like a formatter that writes into the same,
@@ -443,7 +443,7 @@ impl<W, D> ser::Serializer for Serializer<W, D>
     type Error = io::Error;
 
     fn visit_bool(&mut self, value: bool) -> io::Result<()> {
-        if self.is_complex_key {
+        if self.in_complex_key_depth > 0 {
             panic!("TODO(ST): complex keys")
         } else {
             let svd = self.opts.borrow().scalar_value_details.clone();
@@ -514,7 +514,7 @@ impl<W, D> ser::Serializer for Serializer<W, D>
     ///           as long as we don't know, we actually use the wrong settings 
     ///           (should be scalar_key_details)
     fn visit_str(&mut self, value: &str) -> io::Result<()> {
-        if self.is_complex_key {
+        if self.in_complex_key_depth > 0 {
             panic!("TODO(ST): complex keys")
         } else {
             let str_opts = 
