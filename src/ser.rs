@@ -12,6 +12,8 @@ static YAML_ESCAPE_FORMAT: EscapeFormat = EscapeFormat::YAML;
 static FLOW_DOUBLE_QUOTE: FlowScalarStyle = FlowScalarStyle::DoubleQuote(EscapeFormat::YAML);
 static FLOW_SINGLE_QUOTE: FlowScalarStyle = FlowScalarStyle::SingleQuote;
 
+static NULL_STYLE_SHOW: NullScalarStyle = NullScalarStyle::Show;
+
 const DOCUMENT_START: &'static [u8] = b"---";
 const DOCUMENT_END: &'static [u8] = b"...";
 
@@ -36,7 +38,7 @@ pub struct Serializer<W, D = Borrow<PresentationDetails>>
     current_indent: usize,
     opts: D,
     buf: String,
-    stack: Vec<NullScalarStyle>,
+    open_structs_in_flow_style: usize,
 
     /// used to signify if we should print a comma when we are walking through a
     /// sequence.
@@ -84,13 +86,23 @@ impl<W, D> Serializer<W, D>
             is_empty_document: true,
             ser_mapping_key: false,
             is_complex_key: false,
-            stack: Vec::with_capacity(10),
+            open_structs_in_flow_style: 0,
         }
     }
 
     /// Unwrap the `Writer` from the `Serializer`.
     pub fn into_inner(self) -> W {
         self.writer
+    }
+
+    /// Returns either a Flow style if we are currently in enforced flow mode, or 
+    /// the given structure style
+    fn flow_style_or(&self, this_style: &StructureStyle) -> StructureStyle {
+        if self.open_structs_in_flow_style == 0 {
+            this_style.clone()
+        } else {
+            StructureStyle::Flow
+        }
     }
 
     fn open(&mut self, kind: StructureKind) -> io::Result<()>
@@ -105,7 +117,7 @@ impl<W, D> Serializer<W, D>
         let open_ascii: &[u8] = 
             match kind {
                 StructureKind::Sequence => {
-                    match self.opts.borrow().sequence_details.style {
+                    match self.flow_style_or(&self.opts.borrow().sequence_details.style) {
                         // In block mode, we always start on a new line
                         StructureStyle::Block => {
                             if self.is_empty_document { 
@@ -115,7 +127,7 @@ impl<W, D> Serializer<W, D>
                             }
                         },
                         StructureStyle::Flow => {
-                            self.stack.push(NullScalarStyle::Show);
+                            self.open_structs_in_flow_style += 1;
                             if self.is_empty_document {
                                 b"["
                             } else {
@@ -125,7 +137,7 @@ impl<W, D> Serializer<W, D>
                     }
                 },
                 StructureKind::Mapping => {
-                    match self.opts.borrow().mapping_details.details.style {
+                    match self.flow_style_or(&self.opts.borrow().mapping_details.details.style) {
                         // In block mode, we always start on a new line
                         StructureStyle::Block => {
                             if self.is_empty_document { 
@@ -135,6 +147,7 @@ impl<W, D> Serializer<W, D>
                             }
                         },
                         StructureStyle::Flow => {
+                            self.open_structs_in_flow_style += 1;
                             if self.is_empty_document {
                                 b"{"
                             } else {
@@ -160,13 +173,14 @@ impl<W, D> Serializer<W, D>
             return Ok(())
         }
 
-        let style = 
+        let style = self.flow_style_or(
             match kind {
                 StructureKind::Sequence => &self.opts.borrow().sequence_details.style,
                 StructureKind::Mapping => &self.opts.borrow().mapping_details.details.style,
-            };
+            }
+        );
 
-        match *style {
+        match style {
             StructureStyle::Block => {
                 encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, 
                              &self.opts.borrow().format.line_break)
@@ -199,18 +213,21 @@ impl<W, D> Serializer<W, D>
         let close_ascii: &[u8] = 
             match kind {
                 StructureKind::Sequence => {
-                    match self.opts.borrow().sequence_details.style {
+                    match self.flow_style_or(&self.opts.borrow().sequence_details.style) {
                         StructureStyle::Block => b"",
                         StructureStyle::Flow => {
-                            self.stack.pop().expect("push and pop must match");
+                            self.open_structs_in_flow_style -= 1;
                             b" ]"
                         },
                     }
                 },
                 StructureKind::Mapping => {
-                    match self.opts.borrow().mapping_details.details.style {
+                    match self.flow_style_or(&self.opts.borrow().mapping_details.details.style) {
                         StructureStyle::Block => b"",
-                        StructureStyle::Flow => b" }",
+                        StructureStyle::Flow => {
+                            self.open_structs_in_flow_style -= 1;
+                            b" }"
+                        },
                     }
                 }
             };
@@ -465,8 +482,11 @@ impl<W, D> ser::Serializer for Serializer<W, D>
     }
 
     fn visit_unit(&mut self) -> io::Result<()> {
-        match *self.stack.last()
-                         .unwrap_or(&self.opts.borrow().mapping_details.null_style) {
+        match *if self.open_structs_in_flow_style == 0 {
+                &self.opts.borrow().mapping_details.null_style
+            } else {
+                &NULL_STYLE_SHOW
+            } {
             NullScalarStyle::HideValue
             |NullScalarStyle::HideEntry 
                 => Ok(()),
@@ -531,7 +551,8 @@ impl<W, D> ser::Serializer for Serializer<W, D>
         }
         self.first_structure_elt = false;
 
-        if let StructureStyle::Block = self.opts.borrow().sequence_details.style {
+        if let StructureStyle::Block = self.flow_style_or(&self.opts.borrow()
+                                                                    .sequence_details.style) {
             try!(encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, b"-"));
         }
 
