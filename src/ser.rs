@@ -169,6 +169,12 @@ impl<W, D> Serializer<W, D>
         encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, open_ascii)
     }
 
+    fn emit_newline(&mut self) -> io::Result<()> {
+        self.is_empty_line = true;
+        encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, 
+                     &self.opts.borrow().format.line_break)
+    }
+
     /// Place a separator suitable for sequences or mappings, based on the current structure
     /// and presentation options
     ///
@@ -189,9 +195,7 @@ impl<W, D> Serializer<W, D>
 
         match style {
             StructureStyle::Block => {
-                self.is_empty_line = true;
-                encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, 
-                             &self.opts.borrow().format.line_break)
+                self.emit_newline()
                 // TODO(ST): Actual indentation handling ... this is still from JSON
                 // indent(&mut self.writer, self.current_indent * 
                 //        self.opts.borrow().format.spaces_per_indentation_level)
@@ -254,7 +258,7 @@ impl<W, D> Serializer<W, D>
 
     /// Must be called once before starting a new document.
     fn begin_document(&mut self) -> io::Result<()> {
-        match self.opts.borrow().document_indicator_style {
+        match self.opts.borrow().document_indicator_style.clone() {
              Some(DocumentIndicatorStyle::Start(ref yaml_directive))
             |Some(DocumentIndicatorStyle::StartEnd(ref yaml_directive)) => {
                 // We don't care about the actual type of it, as we support single-document only
@@ -266,11 +270,9 @@ impl<W, D> Serializer<W, D>
                                               &self.opts.borrow().format.encoding,
                                               yaml_directive));
                             // need line-break after version directive
-                            encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, 
-                                         &self.opts.borrow().format.line_break)
+                            self.emit_newline()
                         },
-                        None 
-                            => Ok(())
+                        None => Ok(())
                     });
 
                 // We may assume that if called, there is at least one value coming.
@@ -289,8 +291,7 @@ impl<W, D> Serializer<W, D>
         match self.opts.borrow().document_indicator_style {
             Some(DocumentIndicatorStyle::StartEnd(_)) => {
                     self.is_empty_line = true;
-                    try!(encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding,
-                                      &self.opts.borrow().format.line_break));
+                    try!(self.emit_newline());
                     encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding,
                                  DOCUMENT_END)
                 },
@@ -653,9 +654,7 @@ impl<W, D> ser::Serializer for Serializer<W, D>
         if explicit_entries {
             if let StructureStyle::Block = self.flow_style_or(&self.opts.borrow()
                                                               .mapping_details.details.style) {
-                try!(encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, 
-                                  &self.opts.borrow().format.line_break));
-                self.is_empty_line = true;
+                try!(self.emit_newline());
             }
         }
         try!(self.colon());
