@@ -192,7 +192,7 @@ impl<W, D> Serializer<W, D>
                 self.is_empty_line = true;
                 encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, 
                              &self.opts.borrow().format.line_break)
-                // TODO: Actual indentation handling ... this is still from JSON
+                // TODO(ST): Actual indentation handling ... this is still from JSON
                 // indent(&mut self.writer, self.current_indent * 
                 //        self.opts.borrow().format.spaces_per_indentation_level)
             },
@@ -218,7 +218,7 @@ impl<W, D> Serializer<W, D>
         self.current_indent -= 1;
         self.stack.pop().expect("pop() must match push()");
 
-        // TODO: Actual indentation handling
+        // TODO(ST): Actual indentation handling
         // try!(indent(&mut self.writer, self.current_indent * 
         //                  self.opts.borrow().format.spaces_per_indentation_level));
 
@@ -366,7 +366,7 @@ impl<W, D> Serializer<W, D>
         where T: fmt::Display
     {
         if self.is_complex_key {
-            panic!("TODO: complex keys")
+            panic!("TODO(ST): complex keys")
         } else {
             // TODO(ST): use pre-allocated buffer ! Like a formatter that writes into the same,
             //           have the slow, but simple implementation for now
@@ -406,7 +406,7 @@ impl<W, D> ser::Serializer for Serializer<W, D>
 
     fn visit_bool(&mut self, value: bool) -> io::Result<()> {
         if self.is_complex_key {
-            panic!("TODO: complex keys")
+            panic!("TODO(ST): complex keys")
         } else {
             let svd = self.opts.borrow().scalar_value_details.clone();
             let bool_str = if value { &"true"[..] } else { &"false"[..] };
@@ -477,10 +477,16 @@ impl<W, D> ser::Serializer for Serializer<W, D>
     ///           (should be scalar_key_details)
     fn visit_str(&mut self, value: &str) -> io::Result<()> {
         if self.is_complex_key {
-            panic!("TODO: complex keys")
+            panic!("TODO(ST): complex keys")
         } else {
             let str_opts = 
                 if self.is_mapping_key {
+                    // TODO(ST): lookahead during parsing is just 1024, therefore we need
+                    // explicit mapping entries for keys which are longer !
+                    // NOTE: we just count bytes, and thus might cut off at smaller lengths ...  
+                    if value.len() > 1023 {
+                        panic!("TODO")
+                    }
                     self.opts.borrow().scalar_key_details.clone()
                 } else {
                     if value.len() < self.opts.borrow().small_scalar_string_value_width_threshold {
@@ -523,6 +529,7 @@ impl<W, D> ser::Serializer for Serializer<W, D>
     }
 
     fn visit_enum_unit(&mut self, _name: &str, variant: &str) -> io::Result<()> {
+        panic!("TODO(ST): should be like a unit, I guess");
         try!(self.open(StructureKind::Mapping));
         // we know the variant is a simple string, so we treat it that way
         {
@@ -557,6 +564,7 @@ impl<W, D> ser::Serializer for Serializer<W, D>
     fn visit_enum_seq<V>(&mut self, _name: &str, variant: &str, visitor: V) -> io::Result<()>
         where V: ser::SeqVisitor,
     {
+        panic!("TODO(ST): should be like a sequence, I guess");
         try!(self.open(StructureKind::Mapping));
         {
             let skd = self.opts.borrow().scalar_key_details.clone(); // borrowchk :(
@@ -607,6 +615,7 @@ impl<W, D> ser::Serializer for Serializer<W, D>
     fn visit_enum_map<V>(&mut self, _name: &str, variant: &str, visitor: V) -> io::Result<()>
         where V: ser::MapVisitor,
     {
+        panic!("TODO(ST): should be like a map, I guess");
         try!(self.open(StructureKind::Mapping));
         {
             let skd = self.opts.borrow().scalar_key_details.clone(); // borrowchk :(
@@ -628,9 +637,27 @@ impl<W, D> ser::Serializer for Serializer<W, D>
         }
         self.first_structure_elt = false;
 
+        let explicit_entries = self.opts.borrow().mapping_details.explicit_entries;
+        if explicit_entries {
+            let encoding = &self.opts.borrow().format.encoding;
+            if !self.is_empty_line {
+                try!(encode_ascii(&mut self.writer, encoding, b" "));
+            }
+            try!(encode_ascii(&mut self.writer, encoding, b"?"));
+            self.is_empty_line = false;
+        }
+
         self.is_mapping_key = true;
         try!(key.serialize(self));
         self.is_mapping_key = false;
+        if explicit_entries {
+            if let StructureStyle::Block = self.flow_style_or(&self.opts.borrow()
+                                                              .mapping_details.details.style) {
+                try!(encode_ascii(&mut self.writer, &self.opts.borrow().format.encoding, 
+                                  &self.opts.borrow().format.line_break));
+                self.is_empty_line = true;
+            }
+        }
         try!(self.colon());
         value.serialize(self)
     }
@@ -1223,7 +1250,8 @@ pub struct MappingDetails {
     /// keys and values.
     /// If false, it will only be used if the mapping key is a non-scalar one.
     /// 
-    /// [YAML Spec](http://www.yaml.org/spec/1.2/spec.html#id2798425)
+    /// * [YAML Spec: block entry](http://www.yaml.org/spec/1.2/spec.html#id2798425)
+    /// * [YAML Spec: single pair](http://www.yaml.org/spec/1.2/spec.html#id2792424)
     pub explicit_entries: bool,
 
     /// Determine how null values are presented

@@ -111,15 +111,21 @@ fn mapping_block() {
     // null is hidden by default
     assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "key1:\nkey2:");
 
+    opts.mapping_details.explicit_entries = true;
+    assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "? key1\n:\n? key2\n:");
+
     opts.scalar_key_details.explicit_tag = true;
+    assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), 
+               "? !!str key1\n:\n? !!str key2\n:");
+    opts.mapping_details.explicit_entries = false;
+
+    
     assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "!!str key1:\n!!str key2:");
 
     opts.document_indicator_style = Some(DocumentIndicatorStyle::Start(None));
     assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "---\n!!str key1:\n!!str key2:");
     opts.scalar_key_details.explicit_tag = false;
 
-
-    
     assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "---\nkey1:\nkey2:");
 
 
@@ -180,6 +186,10 @@ fn mapping_flow() {
 
     // null is hidden by default
     assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "{ key1:, key2: }");
+
+    opts.mapping_details.explicit_entries = true;
+    assert_eq!(yaml::to_string_with_options(&v, &opts).unwrap(), "{ ? key1:, ? key2: }");
+    opts.mapping_details.explicit_entries = false;
 
 
     opts.scalar_key_details.explicit_tag = true;
